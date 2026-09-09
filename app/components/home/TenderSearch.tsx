@@ -1,4 +1,16 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
 export default function TenderSearch() {
+
+  const router = useRouter();
+
+  const [keyword, setKeyword] = useState("");
+  const [category, setCategory] = useState("");
+  const [department, setDepartment] = useState("");
+  const [state, setState] = useState("");
   const tenders = [
     {
       id: "GEM/2026/B/1001",
@@ -65,77 +77,114 @@ export default function TenderSearch() {
           <div className="grid gap-5 md:grid-cols-5">
 
 
+            
             <input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
               placeholder="🔍 Keyword"
               className="rounded-xl border p-4"
             />
 
 
-            <select className="rounded-xl border p-4">
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="rounded-xl border p-4"
+            >
 
-              <option>
+              <option value="">
                 Category
               </option>
 
-              <option>
+              <option value="Supply">
                 Supply
               </option>
 
-              <option>
+              <option value="Construction">
                 Construction
               </option>
 
-              <option>
+              <option value="IT">
                 IT Services
               </option>
 
             </select>
 
 
-            <select className="rounded-xl border p-4">
+            <select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              className="rounded-xl border p-4"
+            >
 
-              <option>
+              <option value="">
                 Department
               </option>
 
-              <option>
-                Railways
+              <option value="Indian Railways">
+                Indian Railways
               </option>
 
-              <option>
+              <option value="CPWD">
                 CPWD
               </option>
 
-              <option>
-                Defence
+              <option value="Indian Army">
+                Indian Army
               </option>
 
             </select>
 
 
-            <select className="rounded-xl border p-4">
+            <select
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+              className="rounded-xl border p-4"
+            >
 
-              <option>
+              <option value="">
                 State
               </option>
 
-              <option>
+              <option value="Delhi">
                 Delhi
               </option>
 
-              <option>
+              <option value="Haryana">
                 Haryana
               </option>
 
-              <option>
+              <option value="Punjab">
                 Punjab
               </option>
 
+              <option value="Rajasthan">
+                Rajasthan
+              </option>
             </select>
 
 
 
-            <button className="rounded-xl bg-blue-700 font-semibold text-white hover:bg-blue-800">
+            <button
+              onClick={() => {
+                const params = new URLSearchParams();
+
+                if (keyword.trim()) {
+                  params.append("keyword", keyword.trim());
+                }
+
+                if (category) {
+                  params.append("category", category);
+                }
+
+                if (state) {
+                  params.append("location", state);
+                }
+
+                router.push(`/tenders?${params.toString()}`);
+              }}
+              className="rounded-xl bg-blue-700 font-semibold text-white hover:bg-blue-800"
+            >
               Search
             </button>
 
