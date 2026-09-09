@@ -1,4 +1,3 @@
-
 import { prisma } from "../lib/prisma";
 import { extractBid } from "./extractor";
 
@@ -21,38 +20,33 @@ async function extractAllBids(): Promise<void> {
    * Also skip bids that have already
    * been successfully extracted.
    */
-  const tenders =
-    await prisma.tender.findMany({
-      where: {
-        pdfExtracted: false,
+  const tenders = await prisma.tender.findMany({
+    where: {
+      pdfExtracted: false,
 
-        tenderNumber: {
-          startsWith:
-            "GEM/2026/B/",
-        },
+      tenderNumber: {
+        startsWith: "GEM/2026/B/",
       },
+    },
 
-      select: {
-        id: true,
-        gemId: true,
-        tenderNumber: true,
-        pdfExtracted: true,
-      },
+    select: {
+      id: true,
+      gemId: true,
+      tenderNumber: true,
+      pdfExtracted: true,
+    },
 
-      orderBy: {
-        id: "asc",
-      },
-    });
+    orderBy: {
+      id: "asc",
+    },
+  });
 
   console.log(
     `Found ${tenders.length} B bids to extract.`
   );
 
   if (tenders.length === 0) {
-    console.log(
-      "Nothing to extract."
-    );
-
+    console.log("Nothing to extract.");
     return;
   }
 
@@ -77,12 +71,15 @@ async function extractAllBids(): Promise<void> {
     i < tenders.length;
     i++
   ) {
-    const tender =
-      tenders[i];
+    const tender = tenders[i];
+
+    const gemId = tender.gemId;
 
     const displayName =
       tender.tenderNumber ??
-      String(tender.gemId);
+      (gemId !== null
+        ? String(gemId)
+        : `Tender ID ${tender.id}`);
 
     console.log("");
     console.log(
@@ -97,11 +94,24 @@ async function extractAllBids(): Promise<void> {
       "----------------------------------------"
     );
 
+    /*
+     * gemId is required by extractBid().
+     *
+     * Skip rows where gemId is missing.
+     */
+    if (gemId === null) {
+      failed++;
+
+      console.warn(
+        `SKIPPED: ${displayName} because gemId is null.`
+      );
+
+      continue;
+    }
+
     try {
       const result =
-        await extractBid(
-          tender.gemId
-        );
+        await extractBid(gemId);
 
       if (result === true) {
         successful++;
@@ -113,9 +123,7 @@ async function extractAllBids(): Promise<void> {
         failed++;
 
         failures.push({
-          gemId:
-            tender.gemId,
-
+          gemId,
           tenderNumber:
             tender.tenderNumber,
         });
@@ -130,9 +138,7 @@ async function extractAllBids(): Promise<void> {
       failed++;
 
       failures.push({
-        gemId:
-          tender.gemId,
-
+        gemId,
         tenderNumber:
           tender.tenderNumber,
       });
@@ -218,4 +224,3 @@ extractAllBids()
       await prisma.$disconnect();
     }
   );
-

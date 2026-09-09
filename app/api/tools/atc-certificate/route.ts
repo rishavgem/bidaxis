@@ -478,9 +478,9 @@ export async function POST(request: NextRequest) {
         .replace(/^-|-$/g, "") ||
       "Tender";
 
-    return new NextResponse(output, {
-      status: 200,
-      headers: {
+    return new NextResponse(new Uint8Array(output), {
+     status: 200,
+        headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 

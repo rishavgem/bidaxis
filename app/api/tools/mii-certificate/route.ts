@@ -504,7 +504,7 @@ export async function POST(request: NextRequest) {
        RETURN WORD FILE
     ====================================================== */
 
-    return new NextResponse(output, {
+    return new NextResponse(new Uint8Array(output), {
       status: 200,
 
       headers: {
