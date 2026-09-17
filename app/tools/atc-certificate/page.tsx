@@ -1,1112 +1,1184 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ChangeEvent } from "react";
+import {
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 
-type CertificateMode = "letterhead" | "bidaxis";
+type Mode = "bidaxis" | "letterhead";
+
+type FormState = {
+  companyName: string;
+  companyAddress: string;
+  bidNumber: string;
+  tenderTitle: string;
+  departmentName: string;
+  signatoryName: string;
+  designation: string;
+  place: string;
+  date: string;
+};
+
+const initialForm: FormState = {
+  companyName: "",
+  companyAddress: "",
+  bidNumber: "",
+  tenderTitle: "",
+  departmentName: "",
+  signatoryName: "",
+  designation: "",
+  place: "",
+  date: new Date().toISOString().split("T")[0],
+};
+
+function Icon({
+  name,
+  size = 20,
+}: {
+  name:
+    | "arrow"
+    | "document"
+    | "upload"
+    | "check"
+    | "download"
+    | "atc";
+  size?: number;
+}) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  return (
+    <svg {...common}>
+      {name === "arrow" && (
+        <>
+          <path d="M19 12H5" />
+          <path d="m12 19-7-7 7-7" />
+        </>
+      )}
+
+      {name === "document" && (
+        <>
+          <path d="M6 3h8l4 4v14H6z" />
+          <path d="M14 3v5h5M9 12h6M9 16h6" />
+        </>
+      )}
+
+      {name === "upload" && (
+        <>
+          <path d="M12 16V4M8 8l4-4 4 4" />
+          <path d="M4 15v5h16v-5" />
+        </>
+      )}
+
+      {name === "check" && (
+        <path d="m5 12 4 4L19 6" />
+      )}
+
+      {name === "download" && (
+        <>
+          <path d="M12 4v12M8 12l4 4 4-4" />
+          <path d="M4 20h16" />
+        </>
+      )}
+
+      {name === "atc" && (
+        <>
+          <path d="M7 3h8l4 4v14H7z" />
+          <path d="M15 3v5h5" />
+          <path d="m10 14 2 2 4-5" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 export default function ATCCertificatePage() {
-  const [certificateMode, setCertificateMode] =
-    useState<CertificateMode>("bidaxis");
+  const [mode, setMode] = useState<Mode>("bidaxis");
+  const [form, setForm] = useState<FormState>(initialForm);
+  const [letterhead, setLetterhead] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<
+    "success" | "error" | ""
+  >("");
 
-  const [letterheadFile, setLetterheadFile] =
-    useState<File | null>(null);
+  function updateField(
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) {
+    const { name, value } = event.target;
 
-  const [letterheadError, setLetterheadError] =
-    useState("");
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  }
 
-  const [isGeneratingWord, setIsGeneratingWord] =
-    useState(false);
+  function selectMode(nextMode: Mode) {
+    setMode(nextMode);
+    setMessage("");
+    setMessageType("");
+  }
 
-  const [
-    wordGenerationError,
-    setWordGenerationError,
-  ] = useState("");
-
-  const [recipient, setRecipient] = useState("");
-  const [organization, setOrganization] =
-    useState("");
-
-  const [
-    organizationAddress,
-    setOrganizationAddress,
-  ] = useState("");
-
-  const [tenderNumber, setTenderNumber] =
-    useState("");
-
-  const [companyName, setCompanyName] =
-    useState("");
-
-  const [companyAddress, setCompanyAddress] =
-    useState("");
-
-  const [signatoryName, setSignatoryName] =
-    useState("");
-
-  const [designation, setDesignation] =
-    useState("");
-
-  const [place, setPlace] = useState("");
-
-  const [certificateDate, setCertificateDate] =
-    useState("");
-
-  const requiredFieldsComplete =
-    recipient.trim() !== "" &&
-    organization.trim() !== "" &&
-    organizationAddress.trim() !== "" &&
-    tenderNumber.trim() !== "" &&
-    companyName.trim() !== "" &&
-    companyAddress.trim() !== "" &&
-    signatoryName.trim() !== "" &&
-    designation.trim() !== "";
-
-  const canGenerateWord =
-    letterheadFile !== null &&
-    requiredFieldsComplete;
-
-  function handleLetterheadUpload(
+  function handleLetterhead(
     event: ChangeEvent<HTMLInputElement>
   ) {
     const file = event.target.files?.[0];
 
-    setLetterheadError("");
-    setWordGenerationError("");
-
     if (!file) {
-      setLetterheadFile(null);
+      setLetterhead(null);
       return;
     }
 
-    const extension = file.name
-      .split(".")
-      .pop()
-      ?.toLowerCase();
-
-    if (extension !== "docx") {
-      setLetterheadFile(null);
+    if (!file.name.toLowerCase().endsWith(".docx")) {
+      setLetterhead(null);
+      setMessage("Please upload a Microsoft Word .docx file only.");
+      setMessageType("error");
       event.target.value = "";
-
-      setLetterheadError(
-        "Please upload your company letterhead in .DOCX format only."
-      );
-
       return;
     }
 
-    const maxSize = 10 * 1024 * 1024;
-
-    if (file.size > maxSize) {
-      setLetterheadFile(null);
-      event.target.value = "";
-
-      setLetterheadError(
-        "The Word document must be smaller than 10 MB."
-      );
-
-      return;
-    }
-
-    setLetterheadFile(file);
+    setLetterhead(file);
+    setMessage("");
+    setMessageType("");
   }
 
-  function handlePrint() {
-    if (!requiredFieldsComplete) {
-      return;
-    }
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
 
-    window.print();
-  }
+    setMessage("");
+    setMessageType("");
 
-  async function handleGenerateWord() {
-    if (!canGenerateWord || !letterheadFile) {
+    if (mode === "letterhead" && !letterhead) {
+      setMessage("Please upload your company Word letterhead.");
+      setMessageType("error");
       return;
     }
 
     try {
-      setIsGeneratingWord(true);
-      setWordGenerationError("");
+      setLoading(true);
 
-      const formData = new FormData();
+      const body = new FormData();
 
-      formData.append(
-        "letterhead",
-        letterheadFile
-      );
+      body.append("mode", mode);
 
-      formData.append(
-        "recipient",
-        recipient
-      );
+      Object.entries(form).forEach(([key, value]) => {
+        body.append(key, value);
+      });
 
-      formData.append(
-        "organization",
-        organization
-      );
+      if (mode === "letterhead" && letterhead) {
+        body.append("letterhead", letterhead);
+      }
 
-      formData.append(
-        "organizationAddress",
-        organizationAddress
-      );
-
-      formData.append(
-        "tenderNumber",
-        tenderNumber
-      );
-
-      formData.append(
-        "companyName",
-        companyName
-      );
-
-      formData.append(
-        "companyAddress",
-        companyAddress
-      );
-
-      formData.append(
-        "signatoryName",
-        signatoryName
-      );
-
-      formData.append(
-        "designation",
-        designation
-      );
-
-      formData.append(
-        "place",
-        place
-      );
-
-      formData.append(
-        "certificateDate",
-        certificateDate
-      );
-
-      const response = await fetch(
-        "/api/tools/atc-certificate",
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      const response = await fetch("/api/tools/atc-certificate", {
+        method: "POST",
+        body,
+      });
 
       if (!response.ok) {
-        const data = await response
-          .json()
-          .catch(() => null);
+        const result = await response.json().catch(() => null);
 
         throw new Error(
-          data?.error ||
-            "Unable to generate the ATC Word certificate."
+          result?.error || "Unable to generate ATC Certificate."
         );
       }
 
       const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
 
-      const objectUrl =
-        URL.createObjectURL(blob);
+      const company =
+        form.companyName
+          .trim()
+          .replace(/[^a-z0-9]+/gi, "-")
+          .replace(/^-+|-+$/g, "") || "BidAxis";
 
-      const safeTenderNumber =
-        tenderNumber
-          .replace(
-            /[^a-zA-Z0-9-_]/g,
-            "-"
-          )
-          .replace(/-+/g, "-")
-          .replace(/^-|-$/g, "") ||
-        "Tender";
+      const anchor = document.createElement("a");
 
-      const anchor =
-        document.createElement("a");
-
-      anchor.href = objectUrl;
-
-      anchor.download =
-        `ATC-Certificate-${safeTenderNumber}.docx`;
+      anchor.href = url;
+      anchor.download = `ATC-Certificate-${company}.docx`;
 
       document.body.appendChild(anchor);
-
       anchor.click();
-
       anchor.remove();
 
-      URL.revokeObjectURL(objectUrl);
+      window.URL.revokeObjectURL(url);
+
+      setMessage("ATC Certificate generated successfully.");
+      setMessageType("success");
     } catch (error) {
-      setWordGenerationError(
+      setMessage(
         error instanceof Error
           ? error.message
-          : "Unable to generate the ATC Word certificate."
+          : "Something went wrong while generating the document."
       );
+
+      setMessageType("error");
     } finally {
-      setIsGeneratingWord(false);
+      setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      {/* =====================================================
-          HERO
-      ====================================================== */}
+    <main className="page">
+      <section className="heroSection">
+        <div className="gridPattern" />
+        <div className="glow glowOne" />
+        <div className="glow glowTwo" />
 
-      <section className="relative overflow-hidden border-b border-slate-200 bg-white">
-        <div className="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-blue-100/70 blur-3xl" />
-
-        <div className="absolute -right-24 top-0 h-80 w-80 rounded-full bg-violet-100/60 blur-3xl" />
-
-        <div className="relative mx-auto max-w-7xl px-6 py-16 text-center">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
-          >
-            <span>&larr;</span>
-            Back to BidAxis
+        <div className="container">
+          <Link href="/tools" className="back">
+            <Icon name="arrow" size={16} />
+            All Document Tools
           </Link>
 
-          <div className="mt-6">
-            <span className="inline-flex rounded-full bg-violet-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-violet-700">
-              Free Tender Tool
-            </span>
-          </div>
-
-          <h1 className="mx-auto mt-5 max-w-5xl text-4xl font-extrabold tracking-tight text-slate-950 md:text-5xl">
-            Acceptance of Terms &amp;
-            Conditions{" "}
-            <span className="text-blue-600">
-              Certificate Generator
-            </span>
-          </h1>
-
-          <p className="mx-auto mt-5 max-w-3xl text-base leading-7 text-slate-600 md:text-lg">
-            Create an ATC certificate for
-            tender submissions using your
-            company&apos;s Word letterhead or
-            the BidAxis certificate template.
-          </p>
-        </div>
-      </section>
-
-      {/* =====================================================
-          CERTIFICATE MODE SELECTOR
-      ====================================================== */}
-
-      <section className="mx-auto max-w-7xl px-6 pt-12">
-        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_12px_40px_rgba(15,23,42,0.06)] md:p-8">
-          <div className="text-center">
-            <span className="inline-flex rounded-full bg-blue-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-blue-700">
-              Certificate Format
-            </span>
-
-            <h2 className="mt-4 text-2xl font-bold text-slate-950 md:text-3xl">
-              How Would You Like to
-              Generate Your Certificate?
-            </h2>
-
-            <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-              Use your existing company
-              letterhead or generate the
-              certificate using the BidAxis
-              template.
-            </p>
-          </div>
-
-          <div className="mx-auto mt-8 grid max-w-4xl gap-5 md:grid-cols-2">
-            {/* COMPANY LETTERHEAD */}
-
-            <button
-              type="button"
-              onClick={() =>
-                setCertificateMode(
-                  "letterhead"
-                )
-              }
-              className={`relative rounded-[22px] border-2 p-6 text-left transition-all ${
-                certificateMode ===
-                "letterhead"
-                  ? "border-blue-600 bg-blue-50/70 shadow-lg shadow-blue-600/10"
-                  : "border-slate-200 bg-white hover:border-blue-200"
-              }`}
-            >
-              {certificateMode ===
-                "letterhead" && (
-                <span className="absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-                  &#10003;
-                </span>
-              )}
-
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 font-extrabold text-blue-700">
-                W
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-950">
-                  Use Company Letterhead
-                </h3>
-
-                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700">
-                  DOCX
-                </span>
-              </div>
-
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Upload your existing Microsoft
-                Word letterhead and automatically
-                add the ATC certificate to the
-                document.
-              </p>
-
-              <p className="mt-5 text-xs font-semibold text-slate-500">
-                Microsoft Word .DOCX only
-              </p>
-            </button>
-
-            {/* BIDAXIS TEMPLATE */}
-
-            <button
-              type="button"
-              onClick={() =>
-                setCertificateMode(
-                  "bidaxis"
-                )
-              }
-              className={`relative rounded-[22px] border-2 p-6 text-left transition-all ${
-                certificateMode ===
-                "bidaxis"
-                  ? "border-blue-600 bg-blue-50/70 shadow-lg shadow-blue-600/10"
-                  : "border-slate-200 bg-white hover:border-blue-200"
-              }`}
-            >
-              {certificateMode ===
-                "bidaxis" && (
-                <span className="absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-                  &#10003;
-                </span>
-              )}
-
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-100 text-xl text-violet-700">
-                &#10024;
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-950">
-                  Use BidAxis Template
-                </h3>
-
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                  Recommended
-                </span>
-              </div>
-
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Use the ready-made BidAxis ATC
-                certificate format with live
-                preview and PDF saving.
-              </p>
-
-              <p className="mt-5 text-xs font-semibold text-slate-500">
-                Live preview &amp; Save as PDF
-              </p>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* =====================================================
-          COMPANY LETTERHEAD FLOW
-      ====================================================== */}
-
-      {certificateMode ===
-        "letterhead" && (
-        <section className="mx-auto max-w-6xl px-6 py-12">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_12px_40px_rgba(15,23,42,0.06)] md:p-8">
-            {/* STEP 1 */}
-
-            <div className="border-b border-slate-200 pb-8">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                Step 1
-              </span>
-
-              <h2 className="mt-2 text-2xl font-bold text-slate-950">
-                Upload Your Word
-                Letterhead
-              </h2>
-
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                Upload your normal company
-                letterhead in Microsoft Word
-                format. BidAxis will
-                automatically add the ATC
-                certificate below the existing
-                document content.
-              </p>
-
-              <div className="mt-6 rounded-[22px] border-2 border-dashed border-slate-200 bg-slate-50 p-7 text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 font-extrabold text-blue-700">
-                  W
-                </div>
-
-                <p className="mt-4 text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Company Letterhead
-                </p>
-
-                <h3 className="mt-2 text-lg font-bold text-slate-950">
-                  Upload Your Word
-                  Letterhead
-                </h3>
-
-                <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-                  Use a normal blank company
-                  letterhead. No placeholder is
-                  required.
-                </p>
-
-                <label className="mt-5 inline-flex cursor-pointer items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700">
-                  Choose Word File
-
-                  <input
-                    type="file"
-                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    onChange={
-                      handleLetterheadUpload
-                    }
-                    className="hidden"
-                  />
-                </label>
-
-                <div className="mt-5 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs font-semibold text-slate-500">
-                  <span>
-                    .DOCX format only
-                  </span>
-
-                  <span>
-                    Maximum 10 MB
-                  </span>
-
-                  <span>
-                    Company letterhead
-                    document
-                  </span>
-                </div>
-              </div>
-
-              {letterheadFile && (
-                <div className="mt-5 flex flex-col gap-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">
-                      {letterheadFile.name}
-                    </p>
-
-                    <p className="mt-1 text-xs font-semibold text-emerald-700">
-                      Word letterhead selected
-                      successfully
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLetterheadFile(
-                        null
-                      );
-
-                      setWordGenerationError(
-                        ""
-                      );
-                    }}
-                    className="text-left text-xs font-bold text-red-500 hover:text-red-600"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
-
-              {letterheadError && (
-                <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
-                  {letterheadError}
-                </div>
-              )}
-
-              <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 px-4 py-4">
-                <p className="text-sm font-semibold leading-6 text-blue-800">
-                  For best results, use a
-                  blank .DOCX letterhead with
-                  the company logo and contact
-                  information in the Word
-                  header or at the top of the
-                  first page.
-                </p>
-              </div>
+          <div className="hero">
+            <div className="heroIcon">
+              <Icon name="atc" size={33} />
             </div>
-
-            {/* STEP 2 */}
-
-            <div className="border-b border-slate-200 py-8">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                Step 2
-              </span>
-
-              <h2 className="mt-2 text-2xl font-bold text-slate-950">
-                Enter ATC Certificate
-                Details
-              </h2>
-
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                Complete the tender,
-                recipient and company
-                information below.
-              </p>
-
-              <ATCForm
-                recipient={recipient}
-                setRecipient={setRecipient}
-                organization={organization}
-                setOrganization={
-                  setOrganization
-                }
-                organizationAddress={
-                  organizationAddress
-                }
-                setOrganizationAddress={
-                  setOrganizationAddress
-                }
-                tenderNumber={
-                  tenderNumber
-                }
-                setTenderNumber={
-                  setTenderNumber
-                }
-                companyName={companyName}
-                setCompanyName={
-                  setCompanyName
-                }
-                companyAddress={
-                  companyAddress
-                }
-                setCompanyAddress={
-                  setCompanyAddress
-                }
-                signatoryName={
-                  signatoryName
-                }
-                setSignatoryName={
-                  setSignatoryName
-                }
-                designation={designation}
-                setDesignation={
-                  setDesignation
-                }
-                place={place}
-                setPlace={setPlace}
-                certificateDate={
-                  certificateDate
-                }
-                setCertificateDate={
-                  setCertificateDate
-                }
-              />
-            </div>
-
-            {/* STEP 3 */}
-
-            <div className="pt-8">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                Step 3
-              </span>
-
-              <h2 className="mt-2 text-2xl font-bold text-slate-950">
-                Generate ATC Word
-                Certificate
-              </h2>
-
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                BidAxis will add the ATC
-                declaration to your uploaded
-                Word letterhead and create a
-                new .DOCX file.
-              </p>
-
-              <button
-                type="button"
-                onClick={
-                  handleGenerateWord
-                }
-                disabled={
-                  !canGenerateWord ||
-                  isGeneratingWord
-                }
-                className="mt-6 w-full rounded-xl bg-blue-600 px-6 py-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {isGeneratingWord
-                  ? "Generating Word Certificate..."
-                  : "Generate ATC Certificate in Word"}
-              </button>
-
-              {!letterheadFile && (
-                <p className="mt-3 text-center text-xs font-semibold text-amber-600">
-                  Upload your Word
-                  letterhead to continue.
-                </p>
-              )}
-
-              {letterheadFile &&
-                !requiredFieldsComplete && (
-                  <p className="mt-3 text-center text-xs font-semibold text-amber-600">
-                    Complete all required
-                    fields to generate the
-                    certificate.
-                  </p>
-                )}
-
-              {wordGenerationError && (
-                <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
-                  {
-                    wordGenerationError
-                  }
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* =====================================================
-          BIDAXIS TEMPLATE FLOW
-      ====================================================== */}
-
-      {certificateMode ===
-        "bidaxis" && (
-        <section className="mx-auto max-w-[1450px] px-6 py-14">
-          <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
-            {/* FORM */}
-
-            <div className="h-fit rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_12px_40px_rgba(15,23,42,0.06)] md:p-8">
-              <div>
-                <span className="inline-flex rounded-full bg-blue-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-blue-700">
-                  Certificate Builder
-                </span>
-
-                <h2 className="mt-4 text-2xl font-bold text-slate-950">
-                  Enter ATC Details
-                </h2>
-
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Fill in the tender and
-                  company information. The
-                  certificate preview will
-                  update automatically.
-                </p>
-              </div>
-
-              <ATCForm
-                recipient={recipient}
-                setRecipient={setRecipient}
-                organization={organization}
-                setOrganization={
-                  setOrganization
-                }
-                organizationAddress={
-                  organizationAddress
-                }
-                setOrganizationAddress={
-                  setOrganizationAddress
-                }
-                tenderNumber={
-                  tenderNumber
-                }
-                setTenderNumber={
-                  setTenderNumber
-                }
-                companyName={companyName}
-                setCompanyName={
-                  setCompanyName
-                }
-                companyAddress={
-                  companyAddress
-                }
-                setCompanyAddress={
-                  setCompanyAddress
-                }
-                signatoryName={
-                  signatoryName
-                }
-                setSignatoryName={
-                  setSignatoryName
-                }
-                designation={designation}
-                setDesignation={
-                  setDesignation
-                }
-                place={place}
-                setPlace={setPlace}
-                certificateDate={
-                  certificateDate
-                }
-                setCertificateDate={
-                  setCertificateDate
-                }
-              />
-
-              <button
-                type="button"
-                onClick={handlePrint}
-                disabled={
-                  !requiredFieldsComplete
-                }
-                className="mt-8 w-full rounded-xl bg-blue-600 px-6 py-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                Download / Save as PDF
-              </button>
-
-              {!requiredFieldsComplete && (
-                <p className="mt-3 text-center text-xs font-semibold text-slate-400">
-                  Complete all required
-                  fields to enable the
-                  certificate.
-                </p>
-              )}
-            </div>
-
-            {/* PREVIEW */}
 
             <div>
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Live Preview
-                  </span>
-
-                  <h2 className="mt-1 text-xl font-bold text-slate-950">
-                    ATC Certificate
-                  </h2>
-                </div>
-
-                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500">
-                  A4 Preview
-                </span>
+              <div className="eyebrow">
+                BIDAXIS DOCUMENT STUDIO
               </div>
 
-              <div
-                id="atc-certificate"
-                className="mx-auto min-h-[1050px] w-full max-w-[820px] overflow-hidden rounded-[4px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.12)]"
-              >
-                <div className="h-2 bg-gradient-to-r from-blue-600 via-violet-500 to-blue-600" />
+              <h1>
+                ATC <span>Certificate</span>
+              </h1>
 
-                <div className="px-12 py-12 text-slate-900 md:px-16">
-                  <div className="border-b border-slate-200 pb-8 text-center">
-                    <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-600">
-                      Tender Declaration
-                    </p>
+              <p>
+                Generate a professional declaration for acceptance of
+                the Additional Terms and Conditions applicable to your
+                tender or GeM bid.
+              </p>
 
-                    <h1 className="mt-4 text-2xl font-extrabold uppercase leading-tight tracking-wide md:text-3xl">
-                      Acceptance of Terms
-                      &amp; Conditions
-                    </h1>
-
-                    <p className="mt-2 text-sm font-bold uppercase tracking-[0.2em] text-slate-500">
-                      ATC Certificate
-                    </p>
-                  </div>
-
-                  <div className="mt-10 text-[15px] leading-8 text-slate-700">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        To,
-                      </p>
-
-                      <p className="font-bold text-slate-900">
-                        {recipient ||
-                          "Recipient / Authority"}
-                      </p>
-
-                      <p>
-                        {organization ||
-                          "Organization Name"}
-                      </p>
-
-                      <p className="whitespace-pre-line">
-                        {organizationAddress ||
-                          "Organization Address"}
-                      </p>
-                    </div>
-
-                    <p className="mt-8 font-bold text-slate-900">
-                      Subject: Acceptance of
-                      Terms and Conditions for
-                      Tender / Bid No.{" "}
-                      <span className="text-blue-700">
-                        {tenderNumber ||
-                          "GEM/XXXX/B/XXXXXXX"}
-                      </span>
-                    </p>
-
-                    <p className="mt-8">
-                      Dear Sir / Madam,
-                    </p>
-
-                    <p className="mt-5 text-justify">
-                      We,{" "}
-                      <strong className="text-slate-900">
-                        {companyName ||
-                          "Company / Firm Name"}
-                      </strong>
-                      , having our registered
-                      office at{" "}
-                      <strong className="text-slate-900">
-                        {companyAddress ||
-                          "Company Address"}
-                      </strong>
-                      , hereby confirm that we
-                      have carefully read and
-                      understood all the terms
-                      and conditions,
-                      specifications,
-                      requirements and other
-                      provisions contained in
-                      Tender / Bid No.{" "}
-                      <strong className="text-slate-900">
-                        {tenderNumber ||
-                          "Tender Number"}
-                      </strong>
-                      .
-                    </p>
-
-                    <p className="mt-5 text-justify">
-                      We hereby accept the
-                      applicable terms and
-                      conditions of the
-                      above-mentioned tender
-                      and agree to comply with
-                      the requirements
-                      specified in the tender
-                      document, including any
-                      corrigenda, amendments
-                      or clarifications issued
-                      by the buyer or competent
-                      authority.
-                    </p>
-
-                    <p className="mt-5 text-justify">
-                      We further confirm that
-                      the information,
-                      declarations and
-                      documents submitted by
-                      us in connection with the
-                      tender are true and
-                      correct to the best of
-                      our knowledge and belief.
-                    </p>
-
-                    <div className="mt-8 rounded-xl border border-blue-100 bg-blue-50 px-5 py-4">
-                      <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                        Tender / Bid Number
-                      </p>
-
-                      <p className="mt-1 font-bold text-slate-950">
-                        {tenderNumber ||
-                          "GEM/XXXX/B/XXXXXXX"}
-                      </p>
-                    </div>
-
-                    <div className="mt-12 grid gap-8 sm:grid-cols-2">
-                      <div>
-                        <p>
-                          <strong className="text-slate-900">
-                            Place:
-                          </strong>{" "}
-                          {place ||
-                            "________________"}
-                        </p>
-
-                        <p className="mt-2">
-                          <strong className="text-slate-900">
-                            Date:
-                          </strong>{" "}
-                          {certificateDate ||
-                            "________________"}
-                        </p>
-                      </div>
-
-                      <div className="sm:text-right">
-                        <div className="mb-14" />
-
-                        <p className="font-bold text-slate-950">
-                          Authorized Signatory
-                        </p>
-
-                        <p className="mt-2 font-semibold text-slate-900">
-                          {signatoryName ||
-                            "Signatory Name"}
-                        </p>
-
-                        <p className="text-slate-600">
-                          {designation ||
-                            "Designation"}
-                        </p>
-
-                        <p className="font-semibold text-slate-700">
-                          {companyName ||
-                            "Company / Firm Name"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-14 border-t border-slate-200 pt-5">
-                    <p className="text-center text-[11px] leading-5 text-slate-400">
-                      This certificate has
-                      been prepared based on
-                      the information provided
-                      by the user. Tender
-                      requirements may vary.
-                      Verify the applicable
-                      ATC, tender document and
-                      corrigenda before
-                      submission.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid h-2 grid-cols-3">
-                  <div className="bg-orange-500" />
-                  <div className="bg-white" />
-                  <div className="bg-emerald-500" />
-                </div>
+              <div className="tags">
+                <span>GeM Tender</span>
+                <span>ATC Acceptance</span>
+                <span>Editable DOCX</span>
+                <span>Letterhead Support</span>
               </div>
             </div>
           </div>
-        </section>
-      )}
-
-      {/* =====================================================
-          INSTRUCTIONS
-      ====================================================== */}
-
-      <section className="mx-auto max-w-6xl px-6 pb-16">
-        <div className="grid gap-6 rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_12px_40px_rgba(15,23,42,0.05)] md:grid-cols-[0.75fr_1.25fr] md:p-8">
-          <div>
-            <span className="inline-flex rounded-full bg-violet-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-700">
-              How It Works
-            </span>
-
-            <h2 className="mt-4 text-2xl font-bold text-slate-950">
-              Generate Your ATC
-              Certificate in Minutes
-            </h2>
-
-            <p className="mt-3 text-sm leading-6 text-slate-500">
-              Choose your preferred
-              certificate format and provide
-              the required tender details.
-            </p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[
-              {
-                number: "01",
-                title:
-                  "Choose Certificate Format",
-                text:
-                  "Select your company Word letterhead or the BidAxis certificate template.",
-              },
-              {
-                number: "02",
-                title:
-                  "Enter Tender Details",
-                text:
-                  "Provide the recipient, organization, tender number and company information.",
-              },
-              {
-                number: "03",
-                title:
-                  "Generate Certificate",
-                text:
-                  "Create the ATC certificate in Word or use the live BidAxis preview.",
-              },
-              {
-                number: "04",
-                title:
-                  "Review Before Submission",
-                text:
-                  "Check the final document against the tender ATC and any applicable corrigenda.",
-              },
-            ].map((item) => (
-              <div
-                key={item.number}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5"
-              >
-                <span className="text-xs font-extrabold text-blue-600">
-                  {item.number}
-                </span>
-
-                <h3 className="mt-2 font-bold text-slate-950">
-                  {item.title}
-                </h3>
-
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  {item.text}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-[22px] border border-amber-200 bg-amber-50 p-6">
-          <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
-            Important
-          </p>
-
-          <h3 className="mt-2 text-lg font-bold text-slate-950">
-            Verify Tender-Specific ATC
-            Requirements
-          </h3>
-
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Some tenders prescribe specific
-            ATC wording, additional
-            declarations or a mandatory
-            certificate format. Always review
-            the tender document, ATC,
-            amendments and corrigenda before
-            submitting the generated
-            certificate.
-          </p>
         </div>
       </section>
 
-      {/* =====================================================
-          PRINT CSS
-      ====================================================== */}
+      <section className="content">
+        <div className="container layout">
+          <form className="formCard" onSubmit={handleSubmit}>
+            <SectionHeader
+              label="DOCUMENT SETUP"
+              title="Choose your document format"
+              description="Generate the declaration using BidAxis formatting or your existing company Word letterhead."
+              step="01"
+            />
 
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
+            <div className="modeGrid">
+              <ModeButton
+                active={mode === "bidaxis"}
+                title="BidAxis Template"
+                description="Professional ready-to-edit document format."
+                icon="document"
+                onClick={() => selectMode("bidaxis")}
+              />
+
+              <ModeButton
+                active={mode === "letterhead"}
+                title="Company Letterhead"
+                description="Use your existing Microsoft Word letterhead."
+                icon="upload"
+                onClick={() => selectMode("letterhead")}
+              />
+            </div>
+
+            {mode === "letterhead" && (
+              <div className="uploadBox">
+                <input
+                  id="atc-letterhead"
+                  type="file"
+                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={handleLetterhead}
+                />
+
+                <label htmlFor="atc-letterhead">
+                  <div className="uploadIcon">
+                    <Icon name="upload" size={24} />
+                  </div>
+
+                  <div className="uploadCopy">
+                    <strong>
+                      {letterhead
+                        ? letterhead.name
+                        : "Upload company letterhead"}
+                    </strong>
+
+                    <span>Microsoft Word .docx only</span>
+
+                    <small>
+                      No placeholder is required in your Word file.
+                    </small>
+                  </div>
+
+                  <b>{letterhead ? "Change" : "Browse"}</b>
+                </label>
+              </div>
+            )}
+
+            <div className="divider" />
+
+            <SectionHeader
+              label="COMPANY & TENDER DETAILS"
+              title="Enter ATC certificate information"
+              description="Enter the bidder, tender and authorized signatory details."
+              step="02"
+            />
+
+            <div className="formGrid">
+              <Field
+                label="Company Name"
+                name="companyName"
+                value={form.companyName}
+                onChange={updateField}
+                placeholder="ABC Technologies Pvt. Ltd."
+                required
+              />
+
+              <Field
+                label="Bid Number"
+                name="bidNumber"
+                value={form.bidNumber}
+                onChange={updateField}
+                placeholder="GEM/2026/B/XXXXXXX"
+                required
+              />
+
+              <div className="full">
+                <label className="textareaLabel">
+                  Company Address <em>*</em>
+                </label>
+
+                <textarea
+                  name="companyAddress"
+                  value={form.companyAddress}
+                  onChange={updateField}
+                  placeholder="Enter registered / office address"
+                  required
+                />
+              </div>
+
+              <div className="full">
+                <Field
+                  label="Tender / Bid Title"
+                  name="tenderTitle"
+                  value={form.tenderTitle}
+                  onChange={updateField}
+                  placeholder="Supply of..."
+                  required
+                />
+              </div>
+
+              <div className="full">
+                <Field
+                  label="Department / Buyer Organisation"
+                  name="departmentName"
+                  value={form.departmentName}
+                  onChange={updateField}
+                  placeholder="Department / Organisation Name"
+                  required
+                />
+              </div>
+
+              <Field
+                label="Authorized Signatory"
+                name="signatoryName"
+                value={form.signatoryName}
+                onChange={updateField}
+                placeholder="Full Name"
+                required
+              />
+
+              <Field
+                label="Designation"
+                name="designation"
+                value={form.designation}
+                onChange={updateField}
+                placeholder="Director / Authorized Signatory"
+                required
+              />
+
+              <Field
+                label="Place"
+                name="place"
+                value={form.place}
+                onChange={updateField}
+                placeholder="New Delhi"
+                required
+              />
+
+              <Field
+                label="Date"
+                name="date"
+                value={form.date}
+                onChange={updateField}
+                type="date"
+                required
+              />
+            </div>
+
+            {message && (
+              <div className={`message ${messageType}`}>
+                {message}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="generate"
+              disabled={loading}
+            >
+              <Icon name="download" size={19} />
+
+              {loading
+                ? "Generating ATC Certificate..."
+                : "Generate & Download DOCX"}
+            </button>
+
+            <p className="note">
+              Review the generated document against the actual ATC and
+              bid requirements before signing and submitting it.
+            </p>
+          </form>
+
+          <aside className="previewColumn">
+            <div className="previewCard">
+              <div className="previewHeader">
+                <div>
+                  <span>LIVE DOCUMENT PREVIEW</span>
+                  <strong>ATC Certificate</strong>
+                </div>
+
+                <div className="ready">
+                  <i />
+                  Ready
+                </div>
+              </div>
+
+              <div className="paper">
+                <div className="paperBrand">
+                  {mode === "bidaxis" ? (
+                    <>
+                      <div className="brandMark">B</div>
+
+                      <div>
+                        <strong>BidAxis</strong>
+                        <span>Document Studio</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="brandMark custom">
+                        <Icon name="document" size={15} />
+                      </div>
+
+                      <div>
+                        <strong>Your Company</strong>
+                        <span>Uploaded Letterhead</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="blueRule" />
+
+                <h3>
+                  ACCEPTANCE OF ADDITIONAL TERMS & CONDITIONS
+                </h3>
+
+                <div className="previewText">
+                  <p>
+                    To,
+                    <br />
+                    <b>
+                      {form.departmentName ||
+                        "Department / Buyer Organisation"}
+                    </b>
+                  </p>
+
+                  <p>
+                    <b>Subject:</b> Acceptance of Additional Terms and
+                    Conditions against Bid No.{" "}
+                    <strong>
+                      {form.bidNumber || "GEM/2026/B/XXXXXXX"}
+                    </strong>
+                  </p>
+
+                  <p>Dear Sir/Madam,</p>
+
+                  <p>
+                    We,{" "}
+                    <strong>
+                      {form.companyName || "Company Name"}
+                    </strong>
+                    , hereby confirm that we have read and understood
+                    the Additional Terms and Conditions applicable to
+                    the above-mentioned bid.
+                  </p>
+
+                  <p>
+                    We accept and agree to comply with the applicable
+                    ATC and other bid conditions, subject to any
+                    deviation expressly disclosed and permitted under
+                    the bid documents.
+                  </p>
+
+                  <p>
+                    This declaration is being submitted in connection
+                    with{" "}
+                    <strong>
+                      {form.tenderTitle || "Tender / Bid Title"}
+                    </strong>
+                    .
+                  </p>
+                </div>
+
+                <div className="signature">
+                  <span>For</span>
+
+                  <strong>
+                    {form.companyName || "Company Name"}
+                  </strong>
+
+                  <div className="signatureSpace" />
+
+                  <b>
+                    {form.signatoryName || "Authorized Signatory"}
+                  </b>
+
+                  <small>
+                    {form.designation || "Designation"}
+                  </small>
+
+                  <small>Place: {form.place || "Place"}</small>
+                </div>
+              </div>
+            </div>
+
+            <div className="infoCard">
+              <div className="infoIcon">
+                <Icon name="atc" size={19} />
+              </div>
+
+              <div>
+                <strong>ATC acknowledgement</strong>
+
+                <p>
+                  Designed for documenting acceptance of applicable
+                  Additional Terms and Conditions.
+                </p>
+              </div>
+            </div>
+
+            <div className="infoCard">
+              <div className="infoIcon">
+                <Icon name="document" size={19} />
+              </div>
+
+              <div>
+                <strong>Editable Word output</strong>
+
+                <p>
+                  Download the document as .docx and review or edit it
+                  before final submission.
+                </p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <style jsx>{`
+        .page {
+          --blue: #0756b8;
+          --blue2: #0a77e8;
+          --navy: #061b35;
+          --ink: #142033;
+          --muted: #68758a;
+          --line: #e4eaf1;
+          min-height: 100vh;
+          background: #f5f8fc;
+          color: var(--ink);
+        }
+
+        .container {
+          width: min(1180px, calc(100% - 40px));
+          margin: auto;
+        }
+
+        .heroSection {
+          position: relative;
+          overflow: hidden;
+          padding: 40px 0 74px;
+          color: white;
+          background:
+            radial-gradient(
+              circle at 82% 22%,
+              rgba(42, 160, 255, 0.2),
+              transparent 29%
+            ),
+            linear-gradient(120deg, #031427, #052b53 58%, #07457f);
+        }
+
+        .gridPattern {
+          position: absolute;
+          inset: 0;
+          opacity: 0.06;
+          background-image:
+            linear-gradient(
+              rgba(255, 255, 255, 0.4) 1px,
+              transparent 1px
+            ),
+            linear-gradient(
+              90deg,
+              rgba(255, 255, 255, 0.4) 1px,
+              transparent 1px
+            );
+          background-size: 48px 48px;
+        }
+
+        .glow {
+          position: absolute;
+          border-radius: 50%;
+          pointer-events: none;
+        }
+
+        .glowOne {
+          width: 260px;
+          height: 260px;
+          right: -100px;
+          top: -130px;
+          background: rgba(50, 171, 255, 0.09);
+        }
+
+        .glowTwo {
+          width: 170px;
+          height: 170px;
+          left: -80px;
+          bottom: -100px;
+          background: rgba(60, 145, 255, 0.08);
+        }
+
+        .back {
+          position: relative;
+          z-index: 2;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          color: #a9c5df;
+          font-size: 11px;
+          font-weight: 700;
+          text-decoration: none;
+          transition: 0.2s;
+        }
+
+        .back:hover {
+          color: white;
+        }
+
+        .hero {
+          position: relative;
+          z-index: 2;
+          display: flex;
+          align-items: center;
+          gap: 22px;
+          margin-top: 42px;
+        }
+
+        .heroIcon {
+          width: 72px;
+          height: 72px;
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 20px;
+          color: #69c1ff;
+          background: rgba(69, 166, 255, 0.1);
+          border: 1px solid rgba(99, 185, 255, 0.2);
+        }
+
+        .eyebrow {
+          margin-bottom: 7px;
+          color: #6fc4ff;
+          font-size: 9px;
+          font-weight: 900;
+          letter-spacing: 1.5px;
+        }
+
+        .hero h1 {
+          margin: 0;
+          font-size: clamp(30px, 4vw, 45px);
+          letter-spacing: -1.6px;
+        }
+
+        .hero h1 span {
+          color: #7bc9ff;
+        }
+
+        .hero p {
+          max-width: 690px;
+          margin: 9px 0 0;
+          color: #aec5da;
+          font-size: 13px;
+          line-height: 1.65;
+        }
+
+        .tags {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+          margin-top: 14px;
+        }
+
+        .tags span {
+          padding: 5px 9px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.055);
+          color: #bdd5e9;
+          font-size: 8px;
+          font-weight: 700;
+        }
+
+        .content {
+          padding: 55px 0 90px;
+        }
+
+        .layout {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) minmax(330px, 0.85fr);
+          gap: 28px;
+          align-items: start;
+        }
+
+        .formCard,
+        .previewCard,
+        .infoCard {
+          background: white;
+          border: 1px solid var(--line);
+          box-shadow: 0 12px 35px rgba(20, 49, 80, 0.05);
+        }
+
+        .formCard {
+          padding: 31px;
+          border-radius: 20px;
+        }
+
+        .modeGrid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-top: 22px;
+        }
+
+        .uploadBox {
+          margin-top: 14px;
+        }
+
+        .uploadBox input {
+          display: none;
+        }
+
+        .uploadBox label {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 16px;
+          border: 1px dashed #aac7e4;
+          border-radius: 13px;
+          background: #f8fbff;
+          cursor: pointer;
+        }
+
+        .uploadIcon {
+          width: 42px;
+          height: 42px;
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 10px;
+          background: white;
+          color: var(--blue);
+          border: 1px solid #dfebf7;
+        }
+
+        .uploadCopy {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .uploadCopy strong {
+          color: #213950;
+          font-size: 10px;
+        }
+
+        .uploadCopy span {
+          margin-top: 3px;
+          color: #8795a5;
+          font-size: 8px;
+        }
+
+        .uploadCopy small {
+          margin-top: 3px;
+          color: #a0abb7;
+          font-size: 7px;
+        }
+
+        .uploadBox b {
+          padding: 7px 10px;
+          border: 1px solid #d9e7f5;
+          border-radius: 7px;
+          background: white;
+          color: var(--blue);
+          font-size: 8px;
+        }
+
+        .divider {
+          height: 1px;
+          margin: 29px 0;
+          background: #edf1f5;
+        }
+
+        .formGrid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 17px;
+          margin-top: 20px;
+        }
+
+        .full {
+          grid-column: 1 / -1;
+        }
+
+        .textareaLabel {
+          display: block;
+          margin-bottom: 7px;
+          color: #435469;
+          font-size: 9px;
+          font-weight: 800;
+        }
+
+        em {
+          color: #e14e4e;
+          font-style: normal;
+        }
+
+        textarea {
+          width: 100%;
+          min-height: 80px;
+          padding: 12px 13px;
+          resize: vertical;
+          outline: none;
+          border: 1px solid #dfe6ee;
+          border-radius: 10px;
+          background: #fbfcfe;
+          color: #23364d;
+          font: inherit;
+          font-size: 11px;
+        }
+
+        textarea:focus {
+          border-color: var(--blue2);
+          background: white;
+          box-shadow: 0 0 0 3px rgba(10, 119, 232, 0.05);
+        }
+
+        .generate {
+          width: 100%;
+          height: 50px;
+          margin-top: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 9px;
+          border: 0;
+          border-radius: 11px;
+          background: linear-gradient(135deg, var(--blue), var(--blue2));
+          color: white;
+          font-size: 11px;
+          font-weight: 900;
+          cursor: pointer;
+          box-shadow: 0 12px 24px rgba(7, 86, 184, 0.17);
+        }
+
+        .generate:disabled {
+          opacity: 0.65;
+          cursor: wait;
+        }
+
+        .note {
+          margin: 10px 0 0;
+          text-align: center;
+          color: #98a4b2;
+          font-size: 8px;
+        }
+
+        .message {
+          margin-top: 18px;
+          padding: 11px 13px;
+          border-radius: 9px;
+          font-size: 9px;
+          font-weight: 700;
+        }
+
+        .message.success {
+          color: #177c48;
+          background: #edf9f2;
+          border: 1px solid #d1efdd;
+        }
+
+        .message.error {
+          color: #ad3d3d;
+          background: #fff3f3;
+          border: 1px solid #f3d8d8;
+        }
+
+        .previewColumn {
+          position: sticky;
+          top: 25px;
+        }
+
+        .previewCard {
+          overflow: hidden;
+          border-radius: 20px;
+        }
+
+        .previewHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 15px;
+          padding: 18px 20px;
+          border-bottom: 1px solid #e8edf2;
+        }
+
+        .previewHeader > div:first-child {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .previewHeader span {
+          color: #8795a6;
+          font-size: 7px;
+          font-weight: 900;
+          letter-spacing: 1px;
+        }
+
+        .previewHeader strong {
+          margin-top: 3px;
+          color: #20354d;
+          font-size: 11px;
+        }
+
+        .ready {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          padding: 5px 8px;
+          border-radius: 999px;
+          background: #edf9f2;
+          color: #198a50;
+          font-size: 7px;
+          font-weight: 800;
+        }
+
+        .ready i {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: #20a760;
+        }
+
+        .paper {
+          width: calc(100% - 34px);
+          min-height: 570px;
+          margin: 17px;
+          padding: 28px;
+          background: white;
+          border: 1px solid #e3e8ee;
+          box-shadow: 0 10px 30px rgba(22, 48, 76, 0.06);
+        }
+
+        .paperBrand {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .brandMark {
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 8px;
+          background: var(--blue);
+          color: white;
+          font-size: 11px;
+          font-weight: 900;
+        }
+
+        .brandMark.custom {
+          background: #eef5fc;
+          color: var(--blue);
+        }
+
+        .paperBrand > div:last-child {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .paperBrand strong {
+          color: #1a3048;
+          font-size: 9px;
+        }
+
+        .paperBrand span {
+          color: #8b98a7;
+          font-size: 6px;
+        }
+
+        .blueRule {
+          height: 2px;
+          margin: 14px 0 25px;
+          background: linear-gradient(90deg, var(--blue), #53b8ff);
+        }
+
+        .paper h3 {
+          margin: 0 0 24px;
+          text-align: center;
+          color: #1c2e42;
+          font-size: 10px;
+          line-height: 1.45;
+          text-decoration: underline;
+        }
+
+        .previewText {
+          color: #46576a;
+          font-size: 8px;
+          line-height: 1.8;
+        }
+
+        .previewText p {
+          margin: 0 0 14px;
+        }
+
+        .previewText strong,
+        .previewText b {
+          color: #273a50;
+        }
+
+        .signature {
+          display: flex;
+          flex-direction: column;
+          margin-top: 32px;
+          color: #4c5c6e;
+          font-size: 8px;
+        }
+
+        .signature strong,
+        .signature b {
+          color: #25384e;
+        }
+
+        .signatureSpace {
+          height: 42px;
+        }
+
+        .signature small {
+          margin-top: 2px;
+          color: #7e8c9d;
+          font-size: 7px;
+        }
+
+        .infoCard {
+          display: flex;
+          gap: 11px;
+          margin-top: 14px;
+          padding: 16px;
+          border-radius: 13px;
+        }
+
+        .infoIcon {
+          width: 36px;
+          height: 36px;
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9px;
+          background: #eaf4ff;
+          color: var(--blue);
+        }
+
+        .infoCard strong {
+          color: #233a52;
+          font-size: 9px;
+        }
+
+        .infoCard p {
+          margin: 4px 0 0;
+          color: #8794a4;
+          font-size: 8px;
+          line-height: 1.5;
+        }
+
+        @media (max-width: 950px) {
+          .layout {
+            grid-template-columns: 1fr;
           }
 
-          #atc-certificate,
-          #atc-certificate * {
-            visibility: visible !important;
+          .previewColumn {
+            position: static;
+          }
+        }
+
+        @media (max-width: 650px) {
+          .container {
+            width: calc(100% - 24px);
           }
 
-          #atc-certificate {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            min-height: auto !important;
-            margin: 0 !important;
-            border: 0 !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-            background: white !important;
+          .hero {
+            align-items: flex-start;
           }
 
-          @page {
-            size: A4;
-            margin: 12mm;
+          .heroIcon {
+            width: 55px;
+            height: 55px;
+          }
+
+          .formCard {
+            padding: 21px;
+          }
+
+          .modeGrid,
+          .formGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .full {
+            grid-column: auto;
           }
         }
       `}</style>
@@ -1114,267 +1186,249 @@ export default function ATCCertificatePage() {
   );
 }
 
-/* =========================================================
-   SHARED ATC FORM
-========================================================= */
-
-type ATCFormProps = {
-  recipient: string;
-  setRecipient: (
-    value: string
-  ) => void;
-
-  organization: string;
-  setOrganization: (
-    value: string
-  ) => void;
-
-  organizationAddress: string;
-  setOrganizationAddress: (
-    value: string
-  ) => void;
-
-  tenderNumber: string;
-  setTenderNumber: (
-    value: string
-  ) => void;
-
-  companyName: string;
-  setCompanyName: (
-    value: string
-  ) => void;
-
-  companyAddress: string;
-  setCompanyAddress: (
-    value: string
-  ) => void;
-
-  signatoryName: string;
-  setSignatoryName: (
-    value: string
-  ) => void;
-
-  designation: string;
-  setDesignation: (
-    value: string
-  ) => void;
-
-  place: string;
-  setPlace: (
-    value: string
-  ) => void;
-
-  certificateDate: string;
-  setCertificateDate: (
-    value: string
-  ) => void;
-};
-
-function ATCForm({
-  recipient,
-  setRecipient,
-  organization,
-  setOrganization,
-  organizationAddress,
-  setOrganizationAddress,
-  tenderNumber,
-  setTenderNumber,
-  companyName,
-  setCompanyName,
-  companyAddress,
-  setCompanyAddress,
-  signatoryName,
-  setSignatoryName,
-  designation,
-  setDesignation,
-  place,
-  setPlace,
-  certificateDate,
-  setCertificateDate,
-}: ATCFormProps) {
-  const inputClass =
-    "mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10";
-
-  const labelClass =
-    "text-sm font-bold text-slate-700";
-
+function SectionHeader({
+  label,
+  title,
+  description,
+  step,
+}: {
+  label: string;
+  title: string;
+  description: string;
+  step: string;
+}) {
   return (
-    <div className="mt-7 space-y-6">
+    <div className="sectionHeader">
       <div>
-        <label className={labelClass}>
-          To *
-        </label>
-
-        <input
-          value={recipient}
-          onChange={(event) =>
-            setRecipient(
-              event.target.value
-            )
-          }
-          placeholder="The Commandant"
-          className={inputClass}
-        />
+        <span>{label}</span>
+        <h2>{title}</h2>
+        <p>{description}</p>
       </div>
 
-      <div>
-        <label className={labelClass}>
-          Organization *
-        </label>
+      <div className="step">{step}</div>
 
-        <input
-          value={organization}
-          onChange={(event) =>
-            setOrganization(
-              event.target.value
-            )
-          }
-          placeholder="Indian Army"
-          className={inputClass}
-        />
+      <style jsx>{`
+        .sectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 20px;
+          align-items: flex-start;
+        }
+
+        .sectionHeader > div:first-child {
+          max-width: 570px;
+        }
+
+        span {
+          color: #0756b8;
+          font-size: 8px;
+          font-weight: 900;
+          letter-spacing: 1.3px;
+        }
+
+        h2 {
+          margin: 5px 0 0;
+          color: #142b45;
+          font-size: 19px;
+        }
+
+        p {
+          margin: 6px 0 0;
+          color: #8491a1;
+          font-size: 9px;
+          line-height: 1.55;
+        }
+
+        .step {
+          color: #e2eaf3;
+          font-size: 30px;
+          font-weight: 900;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function ModeButton({
+  active,
+  title,
+  description,
+  icon,
+  onClick,
+}: {
+  active: boolean;
+  title: string;
+  description: string;
+  icon: "document" | "upload";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`mode ${active ? "active" : ""}`}
+      onClick={onClick}
+    >
+      <div className="modeIcon">
+        <Icon name={icon} />
       </div>
 
-      <div>
-        <label className={labelClass}>
-          Organization Address *
-        </label>
-
-        <textarea
-          rows={3}
-          value={organizationAddress}
-          onChange={(event) =>
-            setOrganizationAddress(
-              event.target.value
-            )
-          }
-          placeholder="Enter the buyer / organization address"
-          className={inputClass}
-        />
+      <div className="copy">
+        <strong>{title}</strong>
+        <span>{description}</span>
       </div>
 
-      <div>
-        <label className={labelClass}>
-          Tender / Bid Number *
-        </label>
+      <i>{active && <Icon name="check" size={14} />}</i>
 
-        <input
-          value={tenderNumber}
-          onChange={(event) =>
-            setTenderNumber(
-              event.target.value
-            )
-          }
-          placeholder="GEM/2026/B/1234567"
-          className={inputClass}
-        />
-      </div>
+      <style jsx>{`
+        .mode {
+          display: flex;
+          align-items: center;
+          gap: 11px;
+          padding: 16px;
+          text-align: left;
+          border: 1px solid #dfe7ef;
+          border-radius: 13px;
+          background: #fbfcfe;
+          cursor: pointer;
+          transition: 0.2s;
+        }
 
-      <div>
-        <label className={labelClass}>
-          Company / Firm Name *
-        </label>
+        .mode:hover {
+          border-color: #afd1f4;
+          transform: translateY(-1px);
+        }
 
-        <input
-          value={companyName}
-          onChange={(event) =>
-            setCompanyName(
-              event.target.value
-            )
-          }
-          placeholder="Your company name"
-          className={inputClass}
-        />
-      </div>
+        .mode.active {
+          border-color: #0a72d9;
+          background: #f2f8ff;
+          box-shadow: 0 0 0 3px rgba(10, 114, 217, 0.05);
+        }
 
-      <div>
-        <label className={labelClass}>
-          Company Address *
-        </label>
+        .modeIcon {
+          width: 40px;
+          height: 40px;
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 10px;
+          background: #e9f4ff;
+          color: #0756b8;
+        }
 
-        <textarea
-          rows={3}
-          value={companyAddress}
-          onChange={(event) =>
-            setCompanyAddress(
-              event.target.value
-            )
-          }
-          placeholder="Registered company address"
-          className={inputClass}
-        />
-      </div>
+        .copy {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+        }
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div>
-          <label className={labelClass}>
-            Signatory Name *
-          </label>
+        strong {
+          color: #1d334c;
+          font-size: 11px;
+        }
 
-          <input
-            value={signatoryName}
-            onChange={(event) =>
-              setSignatoryName(
-                event.target.value
-              )
-            }
-            placeholder="Authorized signatory"
-            className={inputClass}
-          />
-        </div>
+        span {
+          margin-top: 4px;
+          color: #8390a1;
+          font-size: 8px;
+          line-height: 1.4;
+        }
 
-        <div>
-          <label className={labelClass}>
-            Designation *
-          </label>
+        i {
+          width: 21px;
+          height: 21px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid #cbd7e3;
+          border-radius: 50%;
+          color: white;
+          font-style: normal;
+        }
 
-          <input
-            value={designation}
-            onChange={(event) =>
-              setDesignation(
-                event.target.value
-              )
-            }
-            placeholder="Director / Proprietor / Manager"
-            className={inputClass}
-          />
-        </div>
-      </div>
+        .active i {
+          border-color: #0756b8;
+          background: #0756b8;
+        }
+      `}</style>
+    </button>
+  );
+}
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div>
-          <label className={labelClass}>
-            Place
-          </label>
+function Field({
+  label,
+  name,
+  value,
+  placeholder,
+  type = "text",
+  required = false,
+  onChange,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  placeholder?: string;
+  type?: string;
+  required?: boolean;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <div className="field">
+      <label>
+        {label}
+        {required && (
+          <>
+            {" "}
+            <em>*</em>
+          </>
+        )}
+      </label>
 
-          <input
-            value={place}
-            onChange={(event) =>
-              setPlace(
-                event.target.value
-              )
-            }
-            placeholder="New Delhi"
-            className={inputClass}
-          />
-        </div>
+      <input
+        type={type}
+        name={name}
+        value={value}
+        placeholder={placeholder}
+        required={required}
+        onChange={onChange}
+      />
 
-        <div>
-          <label className={labelClass}>
-            Certificate Date
-          </label>
+      <style jsx>{`
+        label {
+          display: block;
+          margin-bottom: 7px;
+          color: #435469;
+          font-size: 9px;
+          font-weight: 800;
+        }
 
-          <input
-            type="date"
-            value={certificateDate}
-            onChange={(event) =>
-              setCertificateDate(
-                event.target.value
-              )
-            }
-            className={inputClass}
-          />
-        </div>
-      </div>
+        em {
+          color: #e14e4e;
+          font-style: normal;
+        }
+
+        input {
+          width: 100%;
+          height: 43px;
+          padding: 0 13px;
+          outline: none;
+          border: 1px solid #dfe6ee;
+          border-radius: 10px;
+          background: #fbfcfe;
+          color: #23364d;
+          font-size: 11px;
+        }
+
+        input:focus {
+          border-color: #0a77e8;
+          background: white;
+          box-shadow: 0 0 0 3px rgba(10, 119, 232, 0.05);
+        }
+
+        input::placeholder {
+          color: #a0aab6;
+        }
+      `}</style>
     </div>
   );
 }

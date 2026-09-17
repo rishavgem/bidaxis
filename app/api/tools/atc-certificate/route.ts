@@ -1,17 +1,31 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  AlignmentType,
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+} from "docx";
+
 import PizZip from "pizzip";
 
 export const runtime = "nodejs";
 
-/* =========================================================
-   HELPERS
-========================================================= */
+const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-function getText(value: FormDataEntryValue | null) {
-  return typeof value === "string" ? value.trim() : "";
-}
+type ATCData = {
+  companyName: string;
+  companyAddress: string;
+  bidNumber: string;
+  tenderTitle: string;
+  departmentName: string;
+  signatoryName: string;
+  designation: string;
+  place: string;
+  date: string;
+};
 
-function escapeXml(value: string) {
+function xmlEscape(value: string) {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -20,422 +34,557 @@ function escapeXml(value: string) {
     .replace(/'/g, "&apos;");
 }
 
-function paragraph(
-  text = "",
-  options?: {
-    bold?: boolean;
-    center?: boolean;
-    fontSize?: number;
-    spaceAfter?: number;
-  }
-) {
-  const {
-    bold = false,
-    center = false,
-    fontSize = 22,
-    spaceAfter = 120,
-  } = options || {};
-
-  const alignment = center
-    ? `<w:jc w:val="center"/>`
-    : "";
-
-  const boldXml = bold ? "<w:b/>" : "";
-
-  if (!text) {
-    return `
-      <w:p>
-        <w:pPr>
-          <w:spacing w:after="${spaceAfter}"/>
-        </w:pPr>
-      </w:p>
-    `;
-  }
-
-  return `
-    <w:p>
-      <w:pPr>
-        ${alignment}
-        <w:spacing
-          w:after="${spaceAfter}"
-          w:line="276"
-          w:lineRule="auto"
-        />
-      </w:pPr>
-
-      <w:r>
-        <w:rPr>
-          ${boldXml}
-          <w:sz w:val="${fontSize}"/>
-          <w:szCs w:val="${fontSize}"/>
-        </w:rPr>
-
-        <w:t xml:space="preserve">${escapeXml(text)}</w:t>
-      </w:r>
-    </w:p>
-  `;
+function cleanFilename(value: string) {
+  return (
+    value
+      .trim()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "") || "BidAxis"
+  );
 }
 
-/* =========================================================
-   API
-========================================================= */
+function formatDate(value: string) {
+  if (!value) return "";
 
-export async function POST(request: NextRequest) {
+  const [year, month, day] = value.split("-");
+
+  if (!year || !month || !day) return value;
+
+  return `${day}/${month}/${year}`;
+}
+
+function xmlParagraph(
+  text: string,
+  options: {
+    bold?: boolean;
+    center?: boolean;
+    underline?: boolean;
+    after?: number;
+  } = {}
+) {
+  return `
+<w:p>
+  <w:pPr>
+    ${
+      options.center
+        ? '<w:jc w:val="center"/>'
+        : '<w:jc w:val="both"/>'
+    }
+    <w:spacing
+      w:before="0"
+      w:after="${options.after ?? 120}"
+      w:line="276"
+      w:lineRule="auto"
+    />
+  </w:pPr>
+  <w:r>
+    <w:rPr>
+      ${options.bold ? "<w:b/>" : ""}
+      ${options.underline ? '<w:u w:val="single"/>' : ""}
+      <w:sz w:val="22"/>
+      <w:szCs w:val="22"/>
+    </w:rPr>
+    <w:t xml:space="preserve">${xmlEscape(text)}</w:t>
+  </w:r>
+</w:p>`;
+}
+
+function buildATCXml(data: ATCData) {
+  const date = formatDate(data.date);
+
+  return `
+<!-- BIDAXIS-ATC-START -->
+
+<w:p>
+  <w:pPr>
+    <w:spacing w:before="0" w:after="0"/>
+  </w:pPr>
+</w:p>
+
+${xmlParagraph("ACCEPTANCE OF ADDITIONAL TERMS & CONDITIONS", {
+  bold: true,
+  center: true,
+  underline: true,
+  after: 260,
+})}
+
+${xmlParagraph("To,", { after: 40 })}
+
+${xmlParagraph(data.departmentName, {
+  bold: true,
+  after: 180,
+})}
+
+${xmlParagraph(
+  `Subject: Acceptance of Additional Terms and Conditions against Bid No. ${data.bidNumber}`,
+  {
+    bold: true,
+    after: 220,
+  }
+)}
+
+${xmlParagraph("Dear Sir/Madam,", {
+  after: 180,
+})}
+
+${xmlParagraph(
+  `We, ${data.companyName}, having our registered / office address at ${data.companyAddress}, hereby confirm that we have carefully read and understood the Additional Terms and Conditions (ATC), specifications and other applicable conditions forming part of Bid No. ${data.bidNumber} for "${data.tenderTitle}".`,
+  {
+    after: 180,
+  }
+)}
+
+${xmlParagraph(
+  "We hereby accept and agree to comply with the applicable Additional Terms and Conditions and other requirements of the above-mentioned bid, subject to any deviation expressly disclosed by us and permitted under the bid documents.",
+  {
+    after: 180,
+  }
+)}
+
+${xmlParagraph(
+  "We further undertake that, in the event of award, we shall perform our obligations in accordance with the accepted bid terms, applicable ATC and the resulting contract / purchase order.",
+  {
+    after: 180,
+  }
+)}
+
+${xmlParagraph(
+  "This declaration is submitted for the purpose of participation in the above-mentioned bid and the information furnished herein is true and correct to the best of our knowledge and belief.",
+  {
+    after: 300,
+  }
+)}
+
+${xmlParagraph(`For ${data.companyName}`, {
+  bold: true,
+  after: 360,
+})}
+
+${xmlParagraph(data.signatoryName, {
+  bold: true,
+  after: 20,
+})}
+
+${xmlParagraph(data.designation, {
+  after: 100,
+})}
+
+${xmlParagraph(`Place: ${data.place}`, {
+  after: 20,
+})}
+
+${xmlParagraph(`Date: ${date}`, {
+  after: 0,
+})}
+
+<!-- BIDAXIS-ATC-END -->
+`;
+}
+
+function removePreviousATC(xml: string) {
+  return xml.replace(
+    /<!-- BIDAXIS-ATC-START -->[\s\S]*?<!-- BIDAXIS-ATC-END -->/g,
+    ""
+  );
+}
+
+function removeExplicitPageBreaks(xml: string) {
+  return xml
+    .replace(
+      /<w:br\b[^>]*w:type=["']page["'][^>]*\/>/gi,
+      ""
+    )
+    .replace(/<w:lastRenderedPageBreak\b[^>]*\/>/gi, "")
+    .replace(/<w:pageBreakBefore\b[^>]*\/>/gi, "");
+}
+
+function removeTrailingBlankParagraphs(xml: string) {
+  let output = xml;
+
+  for (let i = 0; i < 30; i += 1) {
+    const updated = output.replace(
+      /<w:p(?:\s[^>]*)?>\s*(?:<w:pPr>[\s\S]*?<\/w:pPr>)?\s*(?:<w:r(?:\s[^>]*)?>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>)?\s*(?:<w:t(?:\s[^>]*)?>\s*<\/w:t>)?\s*<\/w:r>)?\s*<\/w:p>\s*$/i,
+      ""
+    );
+
+    if (updated === output) break;
+
+    output = updated;
+  }
+
+  return output;
+}
+
+async function createBidAxisDocument(data: ATCData) {
+  const date = formatDate(data.date);
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: 720,
+              right: 900,
+              bottom: 720,
+              left: 900,
+            },
+          },
+        },
+
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 80 },
+            children: [
+              new TextRun({
+                text: "BIDAXIS",
+                bold: true,
+                size: 28,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 320 },
+            children: [
+              new TextRun({
+                text: "ACCEPTANCE OF ADDITIONAL TERMS & CONDITIONS",
+                bold: true,
+                underline: {},
+                size: 26,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            spacing: { after: 60 },
+            children: [new TextRun({ text: "To," })],
+          }),
+
+          new Paragraph({
+            spacing: { after: 220 },
+            children: [
+              new TextRun({
+                text: data.departmentName,
+                bold: true,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            spacing: { after: 240 },
+            children: [
+              new TextRun({
+                text:
+                  `Subject: Acceptance of Additional Terms and ` +
+                  `Conditions against Bid No. ${data.bidNumber}`,
+                bold: true,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            spacing: { after: 180 },
+            children: [
+              new TextRun({
+                text: "Dear Sir/Madam,",
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: {
+              after: 180,
+              line: 276,
+            },
+            children: [
+              new TextRun({
+                text:
+                  `We, ${data.companyName}, having our registered / office ` +
+                  `address at ${data.companyAddress}, hereby confirm that we ` +
+                  `have carefully read and understood the Additional Terms ` +
+                  `and Conditions (ATC), specifications and other applicable ` +
+                  `conditions forming part of Bid No. ${data.bidNumber} for ` +
+                  `"${data.tenderTitle}".`,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: {
+              after: 180,
+              line: 276,
+            },
+            children: [
+              new TextRun({
+                text:
+                  "We hereby accept and agree to comply with the applicable " +
+                  "Additional Terms and Conditions and other requirements of " +
+                  "the above-mentioned bid, subject to any deviation expressly " +
+                  "disclosed by us and permitted under the bid documents.",
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: {
+              after: 180,
+              line: 276,
+            },
+            children: [
+              new TextRun({
+                text:
+                  "We further undertake that, in the event of award, we shall " +
+                  "perform our obligations in accordance with the accepted bid " +
+                  "terms, applicable ATC and the resulting contract / purchase order.",
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: {
+              after: 320,
+              line: 276,
+            },
+            children: [
+              new TextRun({
+                text:
+                  "This declaration is submitted for the purpose of participation " +
+                  "in the above-mentioned bid and the information furnished herein " +
+                  "is true and correct to the best of our knowledge and belief.",
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            spacing: { after: 360 },
+            children: [
+              new TextRun({
+                text: `For ${data.companyName}`,
+                bold: true,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            spacing: { after: 20 },
+            children: [
+              new TextRun({
+                text: data.signatoryName,
+                bold: true,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            spacing: { after: 100 },
+            children: [
+              new TextRun({
+                text: data.designation,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            spacing: { after: 20 },
+            children: [
+              new TextRun({
+                text: `Place: ${data.place}`,
+              }),
+            ],
+          }),
+
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `Date: ${date}`,
+              }),
+            ],
+          }),
+        ],
+      },
+    ],
+  });
+
+  return Packer.toBuffer(doc);
+}
+
+async function createLetterheadDocument(
+  letterhead: File,
+  data: ATCData
+) {
+  const input = Buffer.from(await letterhead.arrayBuffer());
+
+  let zip: PizZip;
+
+  try {
+    zip = new PizZip(input);
+  } catch {
+    throw new Error(
+      "Unable to open the uploaded Word letterhead. Please upload a valid .docx file."
+    );
+  }
+
+  const documentFile = zip.file("word/document.xml");
+
+  if (!documentFile) {
+    throw new Error(
+      "Invalid Word letterhead. The Word document body could not be found."
+    );
+  }
+
+  let xml = documentFile.asText();
+
+  xml = removePreviousATC(xml);
+  xml = removeExplicitPageBreaks(xml);
+
+  const bodyMatch = xml.match(
+    /<w:body(?:\s[^>]*)?>([\s\S]*?)<\/w:body>/
+  );
+
+  if (!bodyMatch) {
+    throw new Error(
+      "Unable to read the uploaded Word document body."
+    );
+  }
+
+  let body = bodyMatch[1];
+
+  /*
+   * Keep the final section properties because they can contain
+   * header/footer relationships, margins and page-size settings.
+   */
+  const sectionMatches = [
+    ...body.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g),
+  ];
+
+  const sectionProperties =
+    sectionMatches.length > 0
+      ? sectionMatches[sectionMatches.length - 1][0]
+      : "";
+
+  if (sectionProperties) {
+    const sectionIndex = body.lastIndexOf(sectionProperties);
+
+    if (sectionIndex >= 0) {
+      body =
+        body.slice(0, sectionIndex) +
+        body.slice(sectionIndex + sectionProperties.length);
+    }
+  }
+
+  body = removeTrailingBlankParagraphs(body);
+
+  const generatedContent = buildATCXml(data);
+
+  const newBody =
+    `${body}${generatedContent}${sectionProperties}`;
+
+  xml = xml.replace(
+    /<w:body(?:\s[^>]*)?>[\s\S]*?<\/w:body>/,
+    `<w:body>${newBody}</w:body>`
+  );
+
+  zip.file("word/document.xml", xml);
+
+  return zip.generate({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+  });
+}
+
+export async function POST(request: Request) {
   try {
     const formData = await request.formData();
 
-    const letterhead = formData.get("letterhead");
+    const mode = String(formData.get("mode") || "bidaxis");
 
-    /* =====================================================
-       VALIDATE FILE
-    ====================================================== */
-
-    if (!(letterhead instanceof File)) {
-      return NextResponse.json(
-        {
-          error: "Please upload a Word letterhead.",
-        },
-        {
-          status: 400,
-        }
+    if (mode !== "bidaxis" && mode !== "letterhead") {
+      return Response.json(
+        { error: "Invalid document mode." },
+        { status: 400 }
       );
     }
 
-    if (!letterhead.name.toLowerCase().endsWith(".docx")) {
-      return NextResponse.json(
-        {
-          error: "Only .DOCX Word documents are supported.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
+    const data: ATCData = {
+      companyName: String(
+        formData.get("companyName") || ""
+      ).trim(),
 
-    if (letterhead.size > 10 * 1024 * 1024) {
-      return NextResponse.json(
-        {
-          error:
-            "The uploaded Word document must be smaller than 10 MB.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
+      companyAddress: String(
+        formData.get("companyAddress") || ""
+      ).trim(),
 
-    /* =====================================================
-       GET ATC DATA
-    ====================================================== */
+      bidNumber: String(
+        formData.get("bidNumber") || ""
+      ).trim(),
 
-    const recipient = getText(
-      formData.get("recipient")
-    );
+      tenderTitle: String(
+        formData.get("tenderTitle") || ""
+      ).trim(),
 
-    const organization = getText(
-      formData.get("organization")
-    );
+      departmentName: String(
+        formData.get("departmentName") || ""
+      ).trim(),
 
-    const organizationAddress = getText(
-      formData.get("organizationAddress")
-    );
+      signatoryName: String(
+        formData.get("signatoryName") || ""
+      ).trim(),
 
-    const tenderNumber = getText(
-      formData.get("tenderNumber")
-    );
+      designation: String(
+        formData.get("designation") || ""
+      ).trim(),
 
-    const companyName = getText(
-      formData.get("companyName")
-    );
+      place: String(
+        formData.get("place") || ""
+      ).trim(),
 
-    const companyAddress = getText(
-      formData.get("companyAddress")
-    );
+      date: String(
+        formData.get("date") || ""
+      ).trim(),
+    };
 
-    const signatoryName = getText(
-      formData.get("signatoryName")
-    );
+    const required: Array<keyof ATCData> = [
+      "companyName",
+      "companyAddress",
+      "bidNumber",
+      "tenderTitle",
+      "departmentName",
+      "signatoryName",
+      "designation",
+      "place",
+      "date",
+    ];
 
-    const designation = getText(
-      formData.get("designation")
-    );
-
-    const place = getText(
-      formData.get("place")
-    );
-
-    const certificateDate = getText(
-      formData.get("certificateDate")
-    );
-
-    /* =====================================================
-       VALIDATE REQUIRED FIELDS
-    ====================================================== */
-
-    if (
-      !recipient ||
-      !organization ||
-      !organizationAddress ||
-      !tenderNumber ||
-      !companyName ||
-      !companyAddress ||
-      !signatoryName ||
-      !designation
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Please complete all required ATC certificate details.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    /* =====================================================
-       OPEN WORD DOCUMENT
-    ====================================================== */
-
-    const arrayBuffer = await letterhead.arrayBuffer();
-
-    let zip: PizZip;
-
-    try {
-      zip = new PizZip(arrayBuffer);
-    } catch {
-      return NextResponse.json(
-        {
-          error:
-            "The uploaded file is not a valid Word .DOCX document.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    const documentFile = zip.file(
-      "word/document.xml"
-    );
-
-    if (!documentFile) {
-      return NextResponse.json(
-        {
-          error:
-            "Unable to read the uploaded Word document.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    let documentXml = documentFile.asText();
-
-    /* =====================================================
-       BUILD ATC CERTIFICATE
-    ====================================================== */
-
-    const blankSpace = [
-      paragraph("", { spaceAfter: 120 }),
-      paragraph("", { spaceAfter: 120 }),
-      paragraph("", { spaceAfter: 120 }),
-      paragraph("", { spaceAfter: 120 }),
-    ].join("");
-
-    const certificateXml = `
-
-      ${blankSpace}
-
-      ${paragraph(
-        "ACCEPTANCE OF TERMS AND CONDITIONS",
-        {
-          bold: true,
-          center: true,
-          fontSize: 28,
-          spaceAfter: 120,
-        }
-      )}
-
-      ${paragraph(
-        "ATC CERTIFICATE",
-        {
-          bold: true,
-          center: true,
-          fontSize: 22,
-          spaceAfter: 320,
-        }
-      )}
-
-      ${paragraph(
-        `To,`,
-        {
-          fontSize: 22,
-          spaceAfter: 80,
-        }
-      )}
-
-      ${paragraph(
-        recipient,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 80,
-        }
-      )}
-
-      ${paragraph(
-        organization,
-        {
-          fontSize: 22,
-          spaceAfter: 80,
-        }
-      )}
-
-      ${paragraph(
-        organizationAddress,
-        {
-          fontSize: 22,
-          spaceAfter: 260,
-        }
-      )}
-
-      ${paragraph(
-        `Subject: Acceptance of Terms and Conditions for Tender / Bid No. ${tenderNumber}`,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 260,
-        }
-      )}
-
-      ${paragraph(
-        "Dear Sir / Madam,",
-        {
-          fontSize: 22,
-          spaceAfter: 220,
-        }
-      )}
-
-      ${paragraph(
-        `We, ${companyName}, having our registered office at ${companyAddress}, hereby confirm that we have carefully read and understood all the terms and conditions, specifications, requirements and other provisions contained in Tender / Bid No. ${tenderNumber}.`,
-        {
-          fontSize: 22,
-          spaceAfter: 220,
-        }
-      )}
-
-      ${paragraph(
-        "We hereby accept the applicable terms and conditions of the above-mentioned tender and agree to comply with the requirements specified in the tender document, including any corrigenda, amendments or clarifications issued by the buyer or competent authority.",
-        {
-          fontSize: 22,
-          spaceAfter: 220,
-        }
-      )}
-
-      ${paragraph(
-        "We further confirm that the information, declarations and documents submitted by us in connection with the tender are true and correct to the best of our knowledge and belief.",
-        {
-          fontSize: 22,
-          spaceAfter: 220,
-        }
-      )}
-
-      ${paragraph(
-        "This certificate is being issued as confirmation of our acceptance of the applicable tender terms and conditions.",
-        {
-          fontSize: 22,
-          spaceAfter: 380,
-        }
-      )}
-
-      ${paragraph(
-        `Tender / Bid No.: ${tenderNumber}`,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 320,
-        }
-      )}
-
-      ${paragraph(
-        `Place: ${place || "________________"}`,
-        {
-          fontSize: 22,
-          spaceAfter: 120,
-        }
-      )}
-
-      ${paragraph(
-        `Date: ${certificateDate || "________________"}`,
-        {
-          fontSize: 22,
-          spaceAfter: 400,
-        }
-      )}
-
-      ${paragraph(
-        "Authorized Signatory",
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 100,
-        }
-      )}
-
-      ${paragraph(
-        signatoryName,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 80,
-        }
-      )}
-
-      ${paragraph(
-        designation,
-        {
-          fontSize: 22,
-          spaceAfter: 80,
-        }
-      )}
-
-      ${paragraph(
-        companyName,
-        {
-          fontSize: 22,
-          spaceAfter: 100,
-        }
-      )}
-    `;
-
-    /* =====================================================
-       INSERT BEFORE SECTION PROPERTIES
-    ====================================================== */
-
-    const sectionPropertiesIndex =
-      documentXml.lastIndexOf("<w:sectPr");
-
-    if (sectionPropertiesIndex !== -1) {
-      documentXml =
-        documentXml.slice(
-          0,
-          sectionPropertiesIndex
-        ) +
-        certificateXml +
-        documentXml.slice(
-          sectionPropertiesIndex
+    for (const field of required) {
+      if (!data[field]) {
+        return Response.json(
+          {
+            error: `Missing required field: ${field}`,
+          },
+          {
+            status: 400,
+          }
         );
-    } else {
-      const bodyEndIndex =
-        documentXml.lastIndexOf("</w:body>");
+      }
+    }
 
-      if (bodyEndIndex === -1) {
-        return NextResponse.json(
+    let buffer: Buffer;
+
+    if (mode === "letterhead") {
+      const file = formData.get("letterhead");
+
+      if (!(file instanceof File)) {
+        return Response.json(
           {
             error:
-              "Unable to locate the document body in the uploaded Word file.",
+              "Please upload your company Word letterhead.",
           },
           {
             status: 400,
@@ -443,64 +592,61 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      documentXml =
-        documentXml.slice(0, bodyEndIndex) +
-        certificateXml +
-        documentXml.slice(bodyEndIndex);
+      if (!file.name.toLowerCase().endsWith(".docx")) {
+        return Response.json(
+          {
+            error:
+              "Only Microsoft Word .docx letterheads are supported.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (file.size > 15 * 1024 * 1024) {
+        return Response.json(
+          {
+            error:
+              "The uploaded Word letterhead is too large. Maximum supported size is 15 MB.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      buffer = await createLetterheadDocument(file, data);
+    } else {
+      buffer = await createBidAxisDocument(data);
     }
 
-    /* =====================================================
-       SAVE MODIFIED DOCUMENT
-    ====================================================== */
+    const filename =
+      `ATC-Certificate-${cleanFilename(data.companyName)}.docx`;
 
-    zip.file(
-      "word/document.xml",
-      documentXml
-    );
+    /*
+     * Use Uint8Array rather than Buffer directly in Response.
+     * This avoids the Next.js BodyInit/Buffer TypeScript error.
+     */
+    const bytes = new Uint8Array(buffer);
 
-    /* =====================================================
-       GENERATE DOCX
-    ====================================================== */
-
-    const output = zip.generate({
-      type: "nodebuffer",
-      compression: "DEFLATE",
-    });
-
-    /* =====================================================
-       SAFE DOWNLOAD NAME
-    ====================================================== */
-
-    const safeTenderNumber =
-      tenderNumber
-        .replace(/[^a-zA-Z0-9-_]/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "") ||
-      "Tender";
-
-    return new NextResponse(new Uint8Array(output), {
-     status: 200,
-        headers: {
-        "Content-Type":
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-
-        "Content-Disposition":
-          `attachment; filename="ATC-Certificate-${safeTenderNumber}.docx"`,
-
-        "Cache-Control":
-          "no-store",
+    return new Response(bytes, {
+      status: 200,
+      headers: {
+        "Content-Type": DOCX_MIME,
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {
-    console.error(
-      "ATC Word generation error:",
-      error
-    );
+    console.error("ATC certificate generation error:", error);
 
-    return NextResponse.json(
+    return Response.json(
       {
         error:
-          "Unable to generate the ATC Word certificate. Please verify that the uploaded file is a valid .DOCX document.",
+          error instanceof Error
+            ? error.message
+            : "Unable to generate ATC Certificate.",
       },
       {
         status: 500,

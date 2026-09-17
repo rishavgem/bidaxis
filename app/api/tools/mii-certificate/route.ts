@@ -1,17 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  AlignmentType,
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+} from "docx";
+
 import PizZip from "pizzip";
 
 export const runtime = "nodejs";
 
-/* =========================================================
+const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/* ==========================================================
    HELPERS
-========================================================= */
+========================================================== */
 
-function getText(value: FormDataEntryValue | null) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function escapeXml(value: string) {
+function xmlEscape(value: string) {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -20,258 +26,757 @@ function escapeXml(value: string) {
     .replace(/'/g, "&apos;");
 }
 
-function paragraph(
-  text = "",
+function cleanFilename(value: string) {
+  return (
+    value
+      .trim()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "") ||
+    "BidAxis"
+  );
+}
+
+function formatDate(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  const parts = value.split("-");
+
+  if (parts.length !== 3) {
+    return value;
+  }
+
+  const [year, month, day] = parts;
+
+  return `${day}/${month}/${year}`;
+}
+
+/* ==========================================================
+   XML PARAGRAPH
+========================================================== */
+
+function textParagraph(
+  text: string,
   options?: {
     bold?: boolean;
     center?: boolean;
-    fontSize?: number;
-    spaceAfter?: number;
+    underline?: boolean;
+    before?: number;
+    after?: number;
   }
 ) {
-  const {
-    bold = false,
-    center = false,
-    fontSize = 22,
-    spaceAfter = 120,
-  } = options || {};
+  const safe = xmlEscape(text);
 
-  const alignment = center
-    ? `<w:jc w:val="center"/>`
-    : "";
+  const alignment =
+    options?.center
+      ? '<w:jc w:val="center"/>'
+      : '<w:jc w:val="both"/>';
 
-  const boldXml = bold ? "<w:b/>" : "";
+  const bold =
+    options?.bold
+      ? "<w:b/>"
+      : "";
 
-  if (!text) {
-    return `
-      <w:p>
-        <w:pPr>
-          <w:spacing w:after="${spaceAfter}"/>
-        </w:pPr>
-      </w:p>
-    `;
-  }
+  const underline =
+    options?.underline
+      ? '<w:u w:val="single"/>'
+      : "";
 
   return `
-    <w:p>
-      <w:pPr>
-        ${alignment}
-        <w:spacing
-          w:after="${spaceAfter}"
-          w:line="276"
-          w:lineRule="auto"
-        />
-      </w:pPr>
+<w:p>
+  <w:pPr>
+    ${alignment}
 
-      <w:r>
-        <w:rPr>
-          ${boldXml}
-          <w:sz w:val="${fontSize}"/>
-          <w:szCs w:val="${fontSize}"/>
-        </w:rPr>
+    <w:spacing
+      w:before="${options?.before ?? 0}"
+      w:after="${options?.after ?? 120}"
+      w:line="276"
+      w:lineRule="auto"
+    />
+  </w:pPr>
 
-        <w:t xml:space="preserve">${escapeXml(text)}</w:t>
-      </w:r>
-    </w:p>
-  `;
+  <w:r>
+    <w:rPr>
+      ${bold}
+      ${underline}
+      <w:sz w:val="22"/>
+      <w:szCs w:val="22"/>
+    </w:rPr>
+
+    <w:t xml:space="preserve">${safe}</w:t>
+  </w:r>
+</w:p>`;
 }
 
-/* =========================================================
-   API
-========================================================= */
+/* ==========================================================
+   MII XML CONTENT
+========================================================== */
 
-export async function POST(request: NextRequest) {
+function buildCertificateXml(
+  data: Record<string, string>
+) {
+  const date =
+    formatDate(data.date);
+
+  return `
+<!-- BIDAXIS-MII-START -->
+
+<w:p>
+  <w:pPr>
+    <w:spacing
+      w:before="0"
+      w:after="0"
+    />
+  </w:pPr>
+</w:p>
+
+${textParagraph(
+  "MAKE IN INDIA / LOCAL CONTENT DECLARATION",
+  {
+    bold: true,
+    center: true,
+    underline: true,
+    after: 260,
+  }
+)}
+
+${textParagraph(
+  "To,",
+  {
+    after: 40,
+  }
+)}
+
+${textParagraph(
+  data.departmentName,
+  {
+    bold: true,
+    after: 180,
+  }
+)}
+
+${textParagraph(
+  `Subject: Declaration regarding Local Content / Make in India compliance against Bid No. ${data.bidNumber}`,
+  {
+    bold: true,
+    after: 220,
+  }
+)}
+
+${textParagraph(
+  "Dear Sir/Madam,",
+  {
+    after: 180,
+  }
+)}
+
+${textParagraph(
+  `We, ${data.companyName}, having our registered / office address at ${data.companyAddress}, hereby declare that the product offered by us against Bid No. ${data.bidNumber}, namely ${data.productName}, under the brand / make ${data.brandName}, contains ${data.localContent}% local content.`,
+  {
+    after: 180,
+  }
+)}
+
+${textParagraph(
+  `The location at which the local value addition is carried out is ${data.manufacturingLocation}.`,
+  {
+    after: 180,
+  }
+)}
+
+${textParagraph(
+  "We certify that the information furnished above is true and correct to the best of our knowledge and belief and is being submitted for the purpose of the above-mentioned bid.",
+  {
+    after: 300,
+  }
+)}
+
+${textParagraph(
+  `For ${data.companyName}`,
+  {
+    bold: true,
+    after: 360,
+  }
+)}
+
+${textParagraph(
+  data.signatoryName,
+  {
+    bold: true,
+    after: 20,
+  }
+)}
+
+${textParagraph(
+  data.designation,
+  {
+    after: 100,
+  }
+)}
+
+${textParagraph(
+  `Place: ${data.place}`,
+  {
+    after: 20,
+  }
+)}
+
+${textParagraph(
+  `Date: ${date}`,
+  {
+    after: 0,
+  }
+)}
+
+<!-- BIDAXIS-MII-END -->
+`;
+}
+
+/* ==========================================================
+   REMOVE PREVIOUS GENERATED MII CONTENT
+========================================================== */
+
+function removePreviousCertificate(
+  xml: string
+) {
+  return xml.replace(
+    /<!-- BIDAXIS-MII-START -->[\s\S]*?<!-- BIDAXIS-MII-END -->/g,
+    ""
+  );
+}
+
+/* ==========================================================
+   REMOVE PAGE BREAKS
+========================================================== */
+
+function removeExplicitPageBreaks(
+  xml: string
+) {
+  return xml
+    .replace(
+      /<w:br\b[^>]*w:type=["']page["'][^>]*\/>/gi,
+      ""
+    )
+    .replace(
+      /<w:lastRenderedPageBreak\b[^>]*\/>/gi,
+      ""
+    )
+    .replace(
+      /<w:pageBreakBefore\b[^>]*\/>/gi,
+      ""
+    );
+}
+
+/* ==========================================================
+   REMOVE TRAILING EMPTY PARAGRAPHS
+========================================================== */
+
+function removeTrailingBlankParagraphs(
+  xml: string
+) {
+  let output = xml;
+
+  for (
+    let index = 0;
+    index < 30;
+    index += 1
+  ) {
+    const updated =
+      output.replace(
+        /<w:p(?:\s[^>]*)?>\s*(?:<w:pPr>[\s\S]*?<\/w:pPr>)?\s*(?:<w:r(?:\s[^>]*)?>\s*(?:<w:rPr>[\s\S]*?<\/w:rPr>)?\s*(?:<w:t(?:\s[^>]*)?>\s*<\/w:t>)?\s*<\/w:r>)?\s*<\/w:p>\s*$/i,
+        ""
+      );
+
+    if (updated === output) {
+      break;
+    }
+
+    output = updated;
+  }
+
+  return output;
+}
+
+/* ==========================================================
+   BIDAXIS TEMPLATE
+========================================================== */
+
+async function createBidAxisDocument(
+  data: Record<string, string>
+) {
+  const date =
+    formatDate(data.date);
+
+  const document =
+    new Document({
+      sections: [
+        {
+          properties: {
+            page: {
+              margin: {
+                top: 720,
+                right: 900,
+                bottom: 720,
+                left: 900,
+              },
+            },
+          },
+
+          children: [
+            /* BRAND */
+
+            new Paragraph({
+              alignment:
+                AlignmentType.CENTER,
+
+              spacing: {
+                after: 80,
+              },
+
+              children: [
+                new TextRun({
+                  text: "BIDAXIS",
+
+                  bold: true,
+
+                  size: 28,
+                }),
+              ],
+            }),
+
+            new Paragraph({
+              alignment:
+                AlignmentType.CENTER,
+
+              spacing: {
+                after: 320,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    "MAKE IN INDIA / LOCAL CONTENT DECLARATION",
+
+                  bold: true,
+
+                  underline: {},
+
+                  size: 26,
+                }),
+              ],
+            }),
+
+            /* TO */
+
+            new Paragraph({
+              spacing: {
+                after: 60,
+              },
+
+              children: [
+                new TextRun({
+                  text: "To,",
+                }),
+              ],
+            }),
+
+            new Paragraph({
+              spacing: {
+                after: 220,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    data.departmentName,
+
+                  bold: true,
+                }),
+              ],
+            }),
+
+            /* SUBJECT */
+
+            new Paragraph({
+              spacing: {
+                after: 240,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    `Subject: Declaration regarding Local Content / ` +
+                    `Make in India compliance against Bid No. ${data.bidNumber}`,
+
+                  bold: true,
+                }),
+              ],
+            }),
+
+            /* GREETING */
+
+            new Paragraph({
+              spacing: {
+                after: 180,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    "Dear Sir/Madam,",
+                }),
+              ],
+            }),
+
+            /* PARA 1 */
+
+            new Paragraph({
+              alignment:
+                AlignmentType.JUSTIFIED,
+
+              spacing: {
+                after: 180,
+                line: 276,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    `We, ${data.companyName}, having our registered / office ` +
+                    `address at ${data.companyAddress}, hereby declare that the ` +
+                    `product offered by us against Bid No. ${data.bidNumber}, ` +
+                    `namely ${data.productName}, under the brand / make ` +
+                    `${data.brandName}, contains ${data.localContent}% local content.`,
+                }),
+              ],
+            }),
+
+            /* PARA 2 */
+
+            new Paragraph({
+              alignment:
+                AlignmentType.JUSTIFIED,
+
+              spacing: {
+                after: 180,
+                line: 276,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    `The location at which the local value addition is carried ` +
+                    `out is ${data.manufacturingLocation}.`,
+                }),
+              ],
+            }),
+
+            /* PARA 3 */
+
+            new Paragraph({
+              alignment:
+                AlignmentType.JUSTIFIED,
+
+              spacing: {
+                after: 320,
+                line: 276,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    "We certify that the information furnished above is true " +
+                    "and correct to the best of our knowledge and belief and " +
+                    "is being submitted for the purpose of the above-mentioned bid.",
+                }),
+              ],
+            }),
+
+            /* SIGNATURE */
+
+            new Paragraph({
+              spacing: {
+                after: 360,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    `For ${data.companyName}`,
+
+                  bold: true,
+                }),
+              ],
+            }),
+
+            new Paragraph({
+              spacing: {
+                after: 20,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    data.signatoryName,
+
+                  bold: true,
+                }),
+              ],
+            }),
+
+            new Paragraph({
+              spacing: {
+                after: 100,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    data.designation,
+                }),
+              ],
+            }),
+
+            new Paragraph({
+              spacing: {
+                after: 20,
+              },
+
+              children: [
+                new TextRun({
+                  text:
+                    `Place: ${data.place}`,
+                }),
+              ],
+            }),
+
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text:
+                    `Date: ${date}`,
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+
+  return Packer.toBuffer(document);
+}
+
+/* ==========================================================
+   COMPANY LETTERHEAD
+========================================================== */
+
+async function createLetterheadDocument(
+  letterhead: File,
+  data: Record<string, string>
+) {
+  const input =
+    Buffer.from(
+      await letterhead.arrayBuffer()
+    );
+
+  let zip: PizZip;
+
   try {
-    const formData = await request.formData();
-
-    const letterhead = formData.get("letterhead");
-
-    /* =====================================================
-       VALIDATE FILE
-    ====================================================== */
-
-    if (!(letterhead instanceof File)) {
-      return NextResponse.json(
-        {
-          error: "Please upload a Word letterhead.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (!letterhead.name.toLowerCase().endsWith(".docx")) {
-      return NextResponse.json(
-        {
-          error: "Only .DOCX Word documents are supported.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (letterhead.size > 10 * 1024 * 1024) {
-      return NextResponse.json(
-        {
-          error:
-            "The uploaded Word document must be smaller than 10 MB.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    /* =====================================================
-       GET CERTIFICATE DATA
-    ====================================================== */
-
-    const tenderNumber = getText(
-      formData.get("tenderNumber")
+    zip = new PizZip(input);
+  } catch {
+    throw new Error(
+      "Unable to open the uploaded Word letterhead. Please upload a valid .docx file."
     );
+  }
 
-    const companyName = getText(
-      formData.get("companyName")
-    );
-
-    const companyAddress = getText(
-      formData.get("companyAddress")
-    );
-
-    const localContent = getText(
-      formData.get("localContent")
-    );
-
-    const supplierClass = getText(
-      formData.get("supplierClass")
-    );
-
-    const signatoryName = getText(
-      formData.get("signatoryName")
-    );
-
-    const designation = getText(
-      formData.get("designation")
-    );
-
-    const place = getText(
-      formData.get("place")
-    );
-
-    const certificateDate = getText(
-      formData.get("certificateDate")
-    );
-
-    /* =====================================================
-       VALIDATE REQUIRED FIELDS
-    ====================================================== */
-
-    if (
-      !tenderNumber ||
-      !companyName ||
-      !companyAddress ||
-      !localContent ||
-      !supplierClass ||
-      !signatoryName ||
-      !designation
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Please complete all required certificate details.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    /* =====================================================
-       VALIDATE LOCAL CONTENT
-    ====================================================== */
-
-    const localContentNumber = Number(localContent);
-
-    if (
-      Number.isNaN(localContentNumber) ||
-      localContentNumber < 0 ||
-      localContentNumber > 100
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Local content must be between 0 and 100.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (
-      supplierClass === "Class I" &&
-      localContentNumber < 50
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Class I requires at least 50% local content.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (
-      supplierClass === "Class II" &&
-      (localContentNumber < 20 ||
-        localContentNumber >= 50)
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Class II requires at least 20% and less than 50% local content.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    /* =====================================================
-       OPEN WORD DOCUMENT
-    ====================================================== */
-
-    const arrayBuffer = await letterhead.arrayBuffer();
-
-    let zip: PizZip;
-
-    try {
-      zip = new PizZip(arrayBuffer);
-    } catch {
-      return NextResponse.json(
-        {
-          error:
-            "The uploaded file is not a valid Word .DOCX document.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    const documentFile = zip.file(
+  const documentFile =
+    zip.file(
       "word/document.xml"
     );
 
-    if (!documentFile) {
-      return NextResponse.json(
+  if (!documentFile) {
+    throw new Error(
+      "Invalid Word letterhead. The document body could not be found."
+    );
+  }
+
+  let xml =
+    documentFile.asText();
+
+  /*
+   * Remove content generated previously
+   * by this MII generator.
+   */
+
+  xml =
+    removePreviousCertificate(
+      xml
+    );
+
+  /*
+   * Remove explicit page breaks that
+   * can force generated content onto
+   * another page.
+   */
+
+  xml =
+    removeExplicitPageBreaks(
+      xml
+    );
+
+  /*
+   * Locate the Word document body.
+   */
+
+  const bodyMatch =
+    xml.match(
+      /<w:body(?:\s[^>]*)?>([\s\S]*?)<\/w:body>/
+    );
+
+  if (!bodyMatch) {
+    throw new Error(
+      "Unable to read the uploaded Word document body."
+    );
+  }
+
+  let body =
+    bodyMatch[1];
+
+  /*
+   * Preserve final section properties.
+   * These may contain:
+   *
+   * - margins
+   * - page size
+   * - header references
+   * - footer references
+   */
+
+  const sectionMatches = [
+    ...body.matchAll(
+      /<w:sectPr\b[\s\S]*?<\/w:sectPr>/g
+    ),
+  ];
+
+  const sectionProperties =
+    sectionMatches.length > 0
+      ? sectionMatches[
+          sectionMatches.length - 1
+        ][0]
+      : "";
+
+  /*
+   * Temporarily remove the final sectPr.
+   */
+
+  if (sectionProperties) {
+    const sectionIndex =
+      body.lastIndexOf(
+        sectionProperties
+      );
+
+    if (sectionIndex >= 0) {
+      body =
+        body.slice(
+          0,
+          sectionIndex
+        ) +
+        body.slice(
+          sectionIndex +
+            sectionProperties.length
+        );
+    }
+  }
+
+  /*
+   * Clean empty paragraphs at the
+   * end of the uploaded letterhead.
+   *
+   * This allows the generated MII
+   * content to begin close to the
+   * existing company details.
+   */
+
+  body =
+    removeTrailingBlankParagraphs(
+      body
+    );
+
+  /*
+   * Generate MII certificate XML.
+   */
+
+  const certificate =
+    buildCertificateXml(
+      data
+    );
+
+  /*
+   * Existing letterhead
+   * +
+   * generated MII content
+   * +
+   * original section settings.
+   */
+
+  const newBody =
+    `${body}` +
+    `${certificate}` +
+    `${sectionProperties}`;
+
+  /*
+   * Replace Word body.
+   */
+
+  xml = xml.replace(
+    /<w:body(?:\s[^>]*)?>[\s\S]*?<\/w:body>/,
+    `<w:body>${newBody}</w:body>`
+  );
+
+  /*
+   * Put updated XML back
+   * inside the .docx archive.
+   */
+
+  zip.file(
+    "word/document.xml",
+    xml
+  );
+
+  return zip.generate({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+  });
+}
+
+/* ==========================================================
+   API
+========================================================== */
+
+export async function POST(
+  request: Request
+) {
+  try {
+    const formData =
+      await request.formData();
+
+    /* MODE */
+
+    const mode =
+      String(
+        formData.get("mode") ||
+          "bidaxis"
+      );
+
+    if (
+      mode !== "bidaxis" &&
+      mode !== "letterhead"
+    ) {
+      return Response.json(
         {
           error:
-            "Unable to read the uploaded Word document.",
+            "Invalid document mode.",
         },
         {
           status: 400,
@@ -279,185 +784,181 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let documentXml = documentFile.asText();
+    /* FORM DATA */
 
-    /* =====================================================
-       BUILD MII CERTIFICATE
+    const data: Record<
+      string,
+      string
+    > = {
+      companyName:
+        String(
+          formData.get(
+            "companyName"
+          ) || ""
+        ).trim(),
 
-       Four empty Word paragraphs are inserted before
-       the certificate.
-    ====================================================== */
+      companyAddress:
+        String(
+          formData.get(
+            "companyAddress"
+          ) || ""
+        ).trim(),
 
-    const blankSpace = [
-      paragraph("", { spaceAfter: 120 }),
-      paragraph("", { spaceAfter: 120 }),
-      paragraph("", { spaceAfter: 120 }),
-      paragraph("", { spaceAfter: 120 }),
-    ].join("");
+      bidNumber:
+        String(
+          formData.get(
+            "bidNumber"
+          ) || ""
+        ).trim(),
 
-    const certificateXml = `
+      productName:
+        String(
+          formData.get(
+            "productName"
+          ) || ""
+        ).trim(),
 
-      ${blankSpace}
+      brandName:
+        String(
+          formData.get(
+            "brandName"
+          ) || ""
+        ).trim(),
 
-      ${paragraph(
-        "MAKE IN INDIA / LOCAL CONTENT CERTIFICATE",
-        {
-          bold: true,
-          center: true,
-          fontSize: 28,
-          spaceAfter: 160,
-        }
-      )}
+      localContent:
+        String(
+          formData.get(
+            "localContent"
+          ) || ""
+        ).trim(),
 
-      ${paragraph(
-        "SELF DECLARATION",
-        {
-          bold: true,
-          center: true,
-          fontSize: 20,
-          spaceAfter: 300,
-        }
-      )}
+      manufacturingLocation:
+        String(
+          formData.get(
+            "manufacturingLocation"
+          ) || ""
+        ).trim(),
 
-      ${paragraph(
-        `Tender / Bid No.: ${tenderNumber}`,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 240,
-        }
-      )}
+      departmentName:
+        String(
+          formData.get(
+            "departmentName"
+          ) || ""
+        ).trim(),
 
-      ${paragraph(
-        `This is to certify that ${companyName}, having its registered office at ${companyAddress}, hereby declares the local content in relation to Tender / Bid No. ${tenderNumber} as ${localContent}%.`,
-        {
-          fontSize: 22,
-          spaceAfter: 220,
-        }
-      )}
+      signatoryName:
+        String(
+          formData.get(
+            "signatoryName"
+          ) || ""
+        ).trim(),
 
-      ${paragraph(
-        `Based on the information declared above, the bidder has selected the classification ${supplierClass} Local Supplier.`,
-        {
-          fontSize: 22,
-          spaceAfter: 220,
-        }
-      )}
+      designation:
+        String(
+          formData.get(
+            "designation"
+          ) || ""
+        ).trim(),
 
-      ${paragraph(
-        "We certify that the information stated in this declaration is true and correct to the best of our knowledge and is being furnished for participation in the above-mentioned tender.",
-        {
-          fontSize: 22,
-          spaceAfter: 320,
-        }
-      )}
+      place:
+        String(
+          formData.get(
+            "place"
+          ) || ""
+        ).trim(),
 
-      ${paragraph(
-        `Declared Local Content: ${localContent}%`,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 160,
-        }
-      )}
+      date:
+        String(
+          formData.get(
+            "date"
+          ) || ""
+        ).trim(),
+    };
 
-      ${paragraph(
-        `Supplier Classification: ${supplierClass} Local Supplier`,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 420,
-        }
-      )}
+    /* VALIDATION */
 
-      ${paragraph(
-        `Place: ${place || "________________"}`,
-        {
-          fontSize: 22,
-          spaceAfter: 120,
-        }
-      )}
+    const required = [
+      "companyName",
+      "companyAddress",
+      "bidNumber",
+      "productName",
+      "brandName",
+      "localContent",
+      "manufacturingLocation",
+      "departmentName",
+      "signatoryName",
+      "designation",
+      "place",
+      "date",
+    ];
 
-      ${paragraph(
-        `Date: ${certificateDate || "________________"}`,
-        {
-          fontSize: 22,
-          spaceAfter: 400,
-        }
-      )}
-
-      ${paragraph(
-        "Authorized Signatory",
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 100,
-        }
-      )}
-
-      ${paragraph(
-        signatoryName,
-        {
-          bold: true,
-          fontSize: 22,
-          spaceAfter: 80,
-        }
-      )}
-
-      ${paragraph(
-        designation,
-        {
-          fontSize: 22,
-          spaceAfter: 80,
-        }
-      )}
-
-      ${paragraph(
-        companyName,
-        {
-          fontSize: 22,
-          spaceAfter: 100,
-        }
-      )}
-    `;
-
-    /* =====================================================
-       INSERT BEFORE WORD SECTION PROPERTIES
-
-       sectPr normally sits at the end of document body.
-       We insert certificate immediately before it so
-       existing header/footer relationships remain intact.
-    ====================================================== */
-
-    const sectionPropertiesIndex =
-      documentXml.lastIndexOf("<w:sectPr");
-
-    if (sectionPropertiesIndex !== -1) {
-      documentXml =
-        documentXml.slice(
-          0,
-          sectionPropertiesIndex
-        ) +
-        certificateXml +
-        documentXml.slice(
-          sectionPropertiesIndex
-        );
-    } else {
-      /* ===================================================
-         FALLBACK
-
-         If no sectPr is found, insert immediately before
-         closing document body.
-      ==================================================== */
-
-      const bodyEndIndex =
-        documentXml.lastIndexOf("</w:body>");
-
-      if (bodyEndIndex === -1) {
-        return NextResponse.json(
+    for (
+      const field of required
+    ) {
+      if (!data[field]) {
+        return Response.json(
           {
             error:
-              "Unable to locate the document body in the uploaded Word file.",
+              `Missing required field: ${field}`,
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+    }
+
+    /* LOCAL CONTENT */
+
+    const localContent =
+      Number(
+        data.localContent
+      );
+
+    if (
+      !Number.isFinite(
+        localContent
+      ) ||
+      localContent < 0 ||
+      localContent > 100
+    ) {
+      return Response.json(
+        {
+          error:
+            "Local content percentage must be a number between 0 and 100.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    /*
+     * Normalize percentage.
+     */
+
+    data.localContent =
+      String(localContent);
+
+    /* GENERATE */
+
+    let buffer: Buffer;
+
+    if (
+      mode === "letterhead"
+    ) {
+      const file =
+        formData.get(
+          "letterhead"
+        );
+
+      if (
+        !(file instanceof File)
+      ) {
+        return Response.json(
+          {
+            error:
+              "Please upload your company Word letterhead.",
           },
           {
             status: 400,
@@ -465,69 +966,103 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      documentXml =
-        documentXml.slice(0, bodyEndIndex) +
-        certificateXml +
-        documentXml.slice(bodyEndIndex);
+      if (
+        !file.name
+          .toLowerCase()
+          .endsWith(".docx")
+      ) {
+        return Response.json(
+          {
+            error:
+              "Only Microsoft Word .docx letterheads are supported.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      /*
+       * Basic size protection:
+       * 15 MB maximum.
+       */
+
+      if (
+        file.size >
+        15 * 1024 * 1024
+      ) {
+        return Response.json(
+          {
+            error:
+              "The uploaded Word letterhead is too large. Maximum supported size is 15 MB.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      buffer =
+        await createLetterheadDocument(
+          file,
+          data
+        );
+    } else {
+      buffer =
+        await createBidAxisDocument(
+          data
+        );
     }
 
-    /* =====================================================
-       SAVE MODIFIED XML
-    ====================================================== */
+    /* RESPONSE */
 
-    zip.file(
-      "word/document.xml",
-      documentXml
+    const filename =
+      `MII-Certificate-${cleanFilename(
+        data.companyName
+      )}.docx`;
+
+    /*
+     * Next.js Response accepts
+     * Uint8Array reliably.
+     *
+     * This avoids the Buffer type
+     * issue you encountered earlier.
+     */
+
+    const bytes =
+      new Uint8Array(
+        buffer
+      );
+
+    return new Response(
+      bytes,
+      {
+        status: 200,
+
+        headers: {
+          "Content-Type":
+            DOCX_MIME,
+
+          "Content-Disposition":
+            `attachment; filename="${filename}"`,
+
+          "Cache-Control":
+            "no-store",
+        },
+      }
     );
-
-    /* =====================================================
-       GENERATE NEW DOCX
-    ====================================================== */
-
-    const output = zip.generate({
-      type: "nodebuffer",
-      compression: "DEFLATE",
-    });
-
-    /* =====================================================
-       SAFE FILE NAME
-    ====================================================== */
-
-    const safeTenderNumber =
-      tenderNumber
-        .replace(/[^a-zA-Z0-9-_]/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "") ||
-      "Tender";
-
-    /* =====================================================
-       RETURN WORD FILE
-    ====================================================== */
-
-    return new NextResponse(new Uint8Array(output), {
-      status: 200,
-
-      headers: {
-        "Content-Type":
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-
-        "Content-Disposition":
-          `attachment; filename="MII-Certificate-${safeTenderNumber}.docx"`,
-
-        "Cache-Control":
-          "no-store",
-      },
-    });
   } catch (error) {
     console.error(
-      "MII Word generation error:",
+      "MII certificate generation error:",
       error
     );
 
-    return NextResponse.json(
+    return Response.json(
       {
         error:
-          "Unable to generate the Word certificate. Please verify that the uploaded file is a valid .DOCX document.",
+          error instanceof Error
+            ? error.message
+            : "Unable to generate MII certificate.",
       },
       {
         status: 500,
